@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "migrate": "node dist/db/migrate.js",
     "admin:create": "node dist/admin/create-admin.js",
+    "admin:revoke-sessions": "node dist/admin/revoke-sessions.js",
     "test": "vitest run"
   },
   "dependencies": {

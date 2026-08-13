@@ -75,6 +75,18 @@ export class PgSessionStore implements SessionStore {
     await this.pool.query("UPDATE sessions SET revoked_at = now() WHERE token_hash = $1", [tokenHash]);
   }
 
+  async touch(id: string): Promise<void> {
+    // Amortizado: só grava se o último last_seen_at foi há mais de 1 minuto (evita write amplification).
+    await this.pool.query(
+      "UPDATE sessions SET last_seen_at = now() WHERE id = $1 AND last_seen_at < now() - interval '1 minute'",
+      [id],
+    );
+  }
+
+  async revokeAllSessions(operatorId: string): Promise<void> {
+    await this.pool.query("UPDATE sessions SET revoked_at = now() WHERE operator_id = $1 AND revoked_at IS NULL", [operatorId]);
+  }
+
   async deleteExpired(): Promise<void> {
     await this.pool.query("DELETE FROM sessions WHERE expires_at < now() OR revoked_at IS NOT NULL");
   }

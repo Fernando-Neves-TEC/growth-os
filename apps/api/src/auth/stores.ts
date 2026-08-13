@@ -60,6 +60,10 @@ export interface SessionStore {
   create(rec: SessionRecord): Promise<void>;
   findByTokenHash(tokenHash: string): Promise<SessionRecord | null>;
   revokeByTokenHash(tokenHash: string): Promise<void>;
+  /** SECURITY CLOSURE (baixo B): atualiza lastSeenAt (amortizado — o impl pg só grava se >1min). */
+  touch(id: string): Promise<void>;
+  /** SECURITY CLOSURE: revoga TODAS as sessões ativas de um operador (ex.: troca de senha/vazamento). */
+  revokeAllSessions(operatorId: string): Promise<void>;
   deleteExpired(): Promise<void>;
 }
 
@@ -77,6 +81,16 @@ export class MemorySessionStore implements SessionStore {
   async revokeByTokenHash(tokenHash: string): Promise<void> {
     const r = this.rows.get(tokenHash);
     if (r) this.rows.set(tokenHash, { ...r, revokedAt: new Date().toISOString() });
+  }
+  async touch(id: string): Promise<void> {
+    for (const [k, r] of this.rows) {
+      if (r.id === id) this.rows.set(k, { ...r, lastSeenAt: new Date().toISOString() });
+    }
+  }
+  async revokeAllSessions(operatorId: string): Promise<void> {
+    for (const [k, r] of this.rows) {
+      if (r.operatorId === operatorId && !r.revokedAt) this.rows.set(k, { ...r, revokedAt: new Date().toISOString() });
+    }
   }
   async deleteExpired(): Promise<void> {
     const now = Date.now();

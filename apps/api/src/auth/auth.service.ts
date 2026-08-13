@@ -123,6 +123,8 @@ export class AuthService {
       await this.sessions.revokeByTokenHash(session.tokenHash);
       return null;
     }
+    // SECURITY CLOSURE (baixo B): atualiza lastSeenAt (amortizado pelo impl pg — só grava se >1min).
+    await this.sessions.touch(session.id);
     return {
       sessionToken: token,
       csrfToken: session.csrfToken,
@@ -144,6 +146,22 @@ export class AuthService {
       }
     }
     await this.audit.record("AUTH_LOGOUT", { ...ctx, metadata: { reason: "sem_sessao" } });
+  }
+
+  /** SECURITY CLOSURE: revoga TODAS as sessões ativas de um operador (ex.: troca de senha/vazamento).
+   *  Auditoria registra AUTH_LOGOUT com reason=revoke_all. NÃO há endpoint HTTP (apenas CLI local). */
+  async revokeAllSessions(
+    email: string,
+    ctx: { requestId?: string | null; ip?: string | null; path?: string | null; userAgent?: string | null } = {},
+  ): Promise<void> {
+    const operator = await this.operators.findByEmail(email.trim().toLowerCase());
+    if (!operator) return;
+    await this.sessions.revokeAllSessions(operator.id);
+    await this.audit.record("AUTH_LOGOUT", {
+      ...ctx,
+      actorOperatorId: operator.id,
+      metadata: { reason: "revoke_all", email: operator.email },
+    });
   }
 
   async createOperator(email: string, password: string, role = "admin"): Promise<{ id: string; email: string; role: string }> {
