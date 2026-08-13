@@ -286,4 +286,35 @@ describe("Growth OS API (e2e)", () => {
       .expect(409);
     await request(app.getHttpServer()).post("/channels/resume").expect(201);
   });
+
+  it("H3: GET /campaigns/:id inexistente (UUID válido) → 404", async () => {
+    await request(app.getHttpServer()).get("/campaigns/00000000-0000-4000-8000-000000000000").expect(404);
+  });
+
+  it("H3: GET /campaigns/:id com UUID inválido → 404 (não 500)", async () => {
+    await request(app.getHttpServer()).get("/campaigns/nao-e-um-uuid").expect(404);
+  });
+
+  it("H3: plan-day em campanha inexistente → 404", async () => {
+    await request(app.getHttpServer())
+      .post("/campaigns/00000000-0000-4000-8000-000000000000/plan-day")
+      .send({ leads: [{ leadId: "l", channel: "whatsapp", body: "oi" }] })
+      .expect(404);
+  });
+
+  it("H4: validação estruturada — evento com tipo inválido → 400 com erros", async () => {
+    const res = await request(app.getHttpServer())
+      .post("/events")
+      .send({ eventId: "e-bad-1", type: "nao-existe" })
+      .expect(400);
+    expect(res.body.errors.length).toBeGreaterThan(0);
+  });
+
+  it("H4: validação estruturada — campanha sem name → 400", async () => {
+    await request(app.getHttpServer()).post("/campaigns").send({ workflow: validWorkflow }).expect(400);
+  });
+
+  it("H4: validação estruturada — query inválida em /leads → 400", async () => {
+    await request(app.getHttpServer()).get("/leads?limit=abc").expect(400);
+  });
 });

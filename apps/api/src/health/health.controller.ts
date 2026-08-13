@@ -1,5 +1,9 @@
 import { Body, Controller, Get, Inject, Post } from "@nestjs/common";
+import { z } from "zod";
+import { zodBody } from "../validation/zod.pipe.js";
 import { HealthService } from "./health.service.js";
+
+const PauseSchema = z.object({ reason: z.string().optional() });
 
 @Controller("channels")
 export class HealthController {
@@ -16,7 +20,7 @@ export class HealthController {
   }
 
   @Post("pause")
-  pause(@Body() body: { reason?: string }) {
+  pause(@Body(zodBody(PauseSchema)) body: { reason?: string }) {
     return this.health.pause(body.reason ?? "manual");
   }
 
