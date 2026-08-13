@@ -1,13 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { arrProjected, funnelMetrics } from "@growthos/core";
-import { InMemoryStore } from "../store/in-memory.store.js";
+import { COUNTER_STORE, type CounterStore } from "../persistence/stores.js";
 
 @Injectable()
 export class MetricsService {
-  constructor(@Inject(InMemoryStore) private readonly store: InMemoryStore) {}
+  constructor(@Inject(COUNTER_STORE) private readonly counters: CounterStore) {}
 
-  funnel() {
-    const counters = this.store.counters;
+  async funnel() {
+    const { counters } = await this.counters.get();
     return {
       counters,
       metrics: funnelMetrics(counters),

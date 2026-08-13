@@ -1,17 +1,18 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { channelHealth, type GrowthConfig } from "@growthos/core";
 import { GROWTH_CONFIG } from "../config/config.module.js";
-import { InMemoryStore } from "../store/in-memory.store.js";
+import { COUNTER_STORE, KILL_SWITCH_STORE, type CounterStore, type KillSwitchStore } from "../persistence/stores.js";
 
 @Injectable()
 export class HealthService {
   constructor(
-    @Inject(InMemoryStore) private readonly store: InMemoryStore,
+    @Inject(KILL_SWITCH_STORE) private readonly killSwitch: KillSwitchStore,
+    @Inject(COUNTER_STORE) private readonly counters: CounterStore,
     @Inject(GROWTH_CONFIG) private readonly cfg: GrowthConfig,
   ) {}
 
-  channel() {
-    const h = this.store.healthInput;
+  async channel() {
+    const h = (await this.counters.get()).health;
     return channelHealth({
       delivered: h.delivered,
       sent: h.sent,
@@ -23,28 +24,17 @@ export class HealthService {
     });
   }
 
-  killSwitch() {
-    return { paused: this.store.killSwitch.isPaused, reason: this.store.killSwitch.reason };
+  async killSwitchState() {
+    return this.killSwitch.get();
   }
 
-  pause(reason: string) {
-    this.store.killSwitch.pause(reason);
-    return this.killSwitch();
+  async pause(reason: string) {
+    await this.killSwitch.set({ paused: true, reason });
+    return this.killSwitch.get();
   }
 
-  resume() {
-    this.store.killSwitch.resume();
-    return this.killSwitch();
-  }
-
-  ingest(c: { delivered?: number; rejected?: number; readRate?: number; replyRate?: number }) {
-    this.store.healthInput = {
-      ...this.store.healthInput,
-      delivered: c.delivered ?? this.store.healthInput.delivered,
-      rejected: c.rejected ?? this.store.healthInput.rejected,
-      readRate: c.readRate ?? this.store.healthInput.readRate,
-      replyRate: c.replyRate ?? this.store.healthInput.replyRate,
-    };
-    return this.channel();
+  async resume() {
+    await this.killSwitch.set({ paused: false, reason: null });
+    return this.killSwitch.get();
   }
 }

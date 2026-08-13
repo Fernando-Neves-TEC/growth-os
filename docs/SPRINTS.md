@@ -46,6 +46,17 @@ Legenda: ✅ implementado · 🟡 parcial · ⬜ pendente
 - **Regressão Fase 2:** build monorepo OK · core **42/42** · API **12/12** · Python **49/49**.
 - **Infra:** Temporal (Docker) operacional para integração real do worker.
 
+## Checkpoint FASE 3 — Bloco 1: Persistência durável (2026-08-13) ✅
+- **Prioridade da auditoria atendida:** kill-switch e suppression agora **duráveis em PostgreSQL** — sobrevivem a restart (prova real feita).
+- **Camada de persistência** (`apps/api/src/persistence`): interfaces + impls PostgreSQL (`pg`) + impls em memória para testes; `DbModule` (pool) e `PersistenceModule` (global).
+- **Migrations novas:** `003_kill_switch_state`, `004_suppression`, `005_campaigns`, `006_funnel_counters`; **runner** `npm run migrate --workspace=@growthos/api` (aplicado: 001–006).
+- **Store em memória removido**; serviços (campaigns/health/metrics) agora assíncronos sobre stores duráveis.
+- **Rota nova:** `GET/POST /suppression` (opt-out durável); `ingest()` morto removido.
+- **Provas:** teste de integração `db.integration.test.ts` (kill-switch/suppression sobrevivem a nova instância de store) + prova via API com restart real.
+- **Correção de ambiente:** porta do Postgres do Docker em **5433** (conflito com Postgres local do Windows na 5432).
+- **Regressão:** build monorepo OK · core **42/42** · API **15/15** · Python **49/49**.
+- **Pendências F3 (próximos blocos):** ingestão real de eventos do funil; `planDay`/eventos idempotentes; ARR em configuração; contrato canônico TS/Python.
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.

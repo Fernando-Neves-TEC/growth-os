@@ -52,14 +52,21 @@ flowchart TB
 ```
 packages/core/          domínio TS (config, pilar2, pilar4, s9) — CommonJS
 workers/python/         workers: pilar1, pilar3, pilar4, simulation
-apps/api/               API NestJS (campaigns, health, metrics) sobre o core
+apps/api/               API NestJS (campaigns, health, metrics, suppression) + persistência PostgreSQL (pg)
 apps/temporal-worker/   worker Temporal + workflow campaignRun (atividades mock)
 apps/web/               dashboard React (builder + métricas + saúde)
-migrations/             SQL (pgvector)
+migrations/             SQL (pgvector) — runner: npm run migrate --workspace=@growthos/api
 scripts/load-test.mjs   teste de carga simulado
 ```
 
+## Persistência (Fase 3, Bloco 1)
+- Postgres do Docker publicado em **`localhost:5433`** (evita conflito com Postgres local do Windows na 5432).
+- `DbModule` (pool `pg`) + `PersistenceModule` (stores: kill_switch_state, suppression, campaigns, funnel_counters).
+- Testes e2e são herméticos (stores em memória via override); integração real cobre persistência/restart.
+- Sem provedores externos reais: permanece **modo design/simulação** (`GROWTHOS_MODE=simulation`).
+
 ## Roadmap de evolução
 1. **Fase 2 (entregue):** API NestJS + worker Temporal (workflow executado no Temporal local) + dashboard React — integrados sobre o core validado.
-2. **Fase 3:** persistência real (PostgreSQL/pgvector) na API e worker; provedores reais (WhatsApp Business, e-mail verificado, Cal.com) — **somente** com `GROWTHOS_MODE=approved`.
-3. **Fase 4:** builder drag-and-drop completo no dashboard + multi-tenant.
+2. **Fase 3 (em andamento):** Bloco 1 — persistência durável (kill-switch/suppression/campanhas/contadores) entregue; próximos blocos: ingestão de eventos do funil, idempotência, ARR em config, contrato TS/Python.
+3. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com) — **somente** com `GROWTHOS_MODE=approved`.
+4. **Fase 4:** builder drag-and-drop completo + multi-tenant.

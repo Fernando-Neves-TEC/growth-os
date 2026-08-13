@@ -1,0 +1,139 @@
+/** Implementações PostgreSQL (pg) dos stores de persistência (Fase 3). */
+import { Inject, Injectable } from "@nestjs/common";
+import type { FunnelCounters } from "@growthos/core";
+import { PG_POOL } from "../db/db.module.js";
+import type {
+  CampaignRecord,
+  CampaignStore,
+  CounterState,
+  CounterStore,
+  HealthSample,
+  KillSwitchState,
+  KillSwitchStore,
+  SuppressionStore,
+} from "./stores.js";
+import type { Pool } from "pg";
+
+@Injectable()
+export class PgKillSwitchStore implements KillSwitchStore {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  async get(): Promise<KillSwitchState> {
+    const { rows } = await this.pool.query<{ paused: boolean; reason: string | null }>(
+      "SELECT paused, reason FROM kill_switch_state WHERE id = 1",
+    );
+    const r = rows[0];
+    return { paused: r?.paused ?? false, reason: r?.reason ?? null };
+  }
+
+  async set(state: KillSwitchState): Promise<void> {
+    await this.pool.query(
+      "UPDATE kill_switch_state SET paused = $1, reason = $2, updated_at = now() WHERE id = 1",
+      [state.paused, state.reason],
+    );
+  }
+}
+
+@Injectable()
+export class PgSuppressionStore implements SuppressionStore {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  async add(cnpj: string, reason?: string): Promise<void> {
+    await this.pool.query(
+      "INSERT INTO suppression (cnpj, reason) VALUES ($1, $2) ON CONFLICT (cnpj) DO NOTHING",
+      [cnpj, reason ?? null],
+    );
+  }
+
+  async contains(cnpj: string): Promise<boolean> {
+    const { rows } = await this.pool.query("SELECT 1 FROM suppression WHERE cnpj = $1", [cnpj]);
+    return rows.length > 0;
+  }
+
+  async list(): Promise<{ cnpj: string; reason: string | null; createdAt: string }[]> {
+    const { rows } = await this.pool.query<{ cnpj: string; reason: string | null; created_at: string }>(
+      "SELECT cnpj, reason, created_at FROM suppression ORDER BY created_at",
+    );
+    return rows.map((r) => ({ cnpj: r.cnpj, reason: r.reason, createdAt: r.created_at }));
+  }
+}
+
+@Injectable()
+export class PgCampaignStore implements CampaignStore {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  async create(record: CampaignRecord): Promise<void> {
+    await this.pool.query(
+      "INSERT INTO campaigns (id, name, workflow, status) VALUES ($1, $2, $3, $4)",
+      [record.id, record.name, JSON.stringify(record.workflow), record.status],
+    );
+  }
+
+  async get(id: string): Promise<CampaignRecord | null> {
+    const { rows } = await this.pool.query<{ id: string; name: string; workflow: string; status: string; created_at: string }>(
+      "SELECT id, name, workflow, status, created_at FROM campaigns WHERE id = $1",
+      [id],
+    );
+    const r = rows[0];
+    if (!r) return null;
+    return { id: r.id, name: r.name, workflow: JSON.parse(r.workflow), status: r.status as CampaignRecord["status"], createdAt: r.created_at };
+  }
+
+  async list(): Promise<CampaignRecord[]> {
+    const { rows } = await this.pool.query<{ id: string; name: string; workflow: string; status: string; created_at: string }>(
+      "SELECT id, name, workflow, status, created_at FROM campaigns ORDER BY created_at",
+    );
+    return rows.map((r) => ({ id: r.id, name: r.name, workflow: JSON.parse(r.workflow), status: r.status as CampaignRecord["status"], createdAt: r.created_at }));
+  }
+}
+
+@Injectable()
+export class PgCounterStore implements CounterStore {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  async get(): Promise<CounterState> {
+    const { rows } = await this.pool.query<{
+      sent: number;
+      delivered: number;
+      read: number;
+      replied: number;
+      qualified: number;
+      scheduled: number;
+      closed: number;
+      rejected: number;
+      read_rate: number;
+      reply_rate: number;
+    }>("SELECT sent, delivered, read, replied, qualified, scheduled, closed, rejected, read_rate, reply_rate FROM funnel_counters WHERE id = 1");
+    const r = rows[0];
+    const counters: FunnelCounters = {
+      sent: r?.sent ?? 0,
+      delivered: r?.delivered ?? 0,
+      read: r?.read ?? 0,
+      replied: r?.replied ?? 0,
+      qualified: r?.qualified ?? 0,
+      scheduled: r?.scheduled ?? 0,
+      closed: r?.closed ?? 0,
+      rejected: r?.rejected ?? 0,
+    };
+    const health: HealthSample = {
+      delivered: counters.delivered,
+      sent: counters.sent,
+      rejected: counters.rejected,
+      readRate: Number(r?.read_rate ?? 0),
+      replyRate: Number(r?.reply_rate ?? 0),
+    };
+    return { counters, health };
+  }
+
+  async set(state: CounterState): Promise<void> {
+    const c = state.counters;
+    const h = state.health;
+    await this.pool.query(
+      `UPDATE funnel_counters SET
+         sent=$1, delivered=$2, read=$3, replied=$4, qualified=$5, scheduled=$6, closed=$7, rejected=$8,
+         read_rate=$9, reply_rate=$10, updated_at=now()
+       WHERE id = 1`,
+      [c.sent, c.delivered, c.read, c.replied, c.qualified, c.scheduled, c.closed, c.rejected, h.readRate, h.replyRate],
+    );
+  }
+}

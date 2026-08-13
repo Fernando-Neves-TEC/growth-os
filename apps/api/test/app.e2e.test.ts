@@ -3,6 +3,16 @@ import { Test } from "@nestjs/testing";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
+import {
+  CAMPAIGN_STORE,
+  COUNTER_STORE,
+  KILL_SWITCH_STORE,
+  MemoryCampaignStore,
+  MemoryCounterStore,
+  MemoryKillSwitchStore,
+  MemorySuppressionStore,
+  SUPPRESSION_STORE,
+} from "../src/persistence/stores.js";
 
 const validWorkflow = {
   id: "wf-api",
@@ -26,7 +36,17 @@ describe("Growth OS API (e2e)", () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+    // e2e hermético: substitui as stores Postgres por implementações em memória.
+    const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+      .overrideProvider(KILL_SWITCH_STORE)
+      .useValue(new MemoryKillSwitchStore())
+      .overrideProvider(SUPPRESSION_STORE)
+      .useValue(new MemorySuppressionStore())
+      .overrideProvider(CAMPAIGN_STORE)
+      .useValue(new MemoryCampaignStore())
+      .overrideProvider(COUNTER_STORE)
+      .useValue(new MemoryCounterStore())
+      .compile();
     app = moduleRef.createNestApplication();
     await app.init();
   });
@@ -104,5 +124,14 @@ describe("Growth OS API (e2e)", () => {
   it("GET /metrics/funnel expõe ARR projetado", async () => {
     const res = await request(app.getHttpServer()).get("/metrics/funnel").expect(200);
     expect(typeof res.body.arr_projected).toBe("number");
+  });
+
+  it("POST/GET /suppression registra e lista opt-out", async () => {
+    await request(app.getHttpServer())
+      .post("/suppression")
+      .send({ cnpj: "12.345.678/0001-90", reason: "auditoria" })
+      .expect(201);
+    const res = await request(app.getHttpServer()).get("/suppression").expect(200);
+    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "12345678000190")).toBe(true);
   });
 });

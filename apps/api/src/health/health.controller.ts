@@ -12,7 +12,7 @@ export class HealthController {
 
   @Get("kill-switch")
   killSwitch() {
-    return this.health.killSwitch();
+    return this.health.killSwitchState();
   }
 
   @Post("pause")

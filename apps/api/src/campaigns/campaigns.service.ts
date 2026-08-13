@@ -17,7 +17,15 @@ import {
   type StepResult,
 } from "@growthos/core";
 import { GROWTH_CONFIG } from "../config/config.module.js";
-import { InMemoryStore, type CampaignRecord } from "../store/in-memory.store.js";
+import {
+  CAMPAIGN_STORE,
+  COUNTER_STORE,
+  KILL_SWITCH_STORE,
+  type CampaignRecord,
+  type CampaignStore,
+  type CounterStore,
+  type KillSwitchStore,
+} from "../persistence/stores.js";
 
 export interface CreateCampaignInput {
   name: string;
@@ -38,11 +46,13 @@ export interface SimulateTurnInput {
 @Injectable()
 export class CampaignsService {
   constructor(
-    @Inject(InMemoryStore) private readonly store: InMemoryStore,
+    @Inject(CAMPAIGN_STORE) private readonly campaigns: CampaignStore,
+    @Inject(COUNTER_STORE) private readonly counters: CounterStore,
+    @Inject(KILL_SWITCH_STORE) private readonly killSwitch: KillSwitchStore,
     @Inject(GROWTH_CONFIG) private readonly cfg: GrowthConfig,
   ) {}
 
-  create(input: CreateCampaignInput): CampaignRecord {
+  async create(input: CreateCampaignInput): Promise<CampaignRecord> {
     const validated = validateWorkflow(input.workflow);
     if (!validated.ok) {
       throw new BadRequestException({ message: "workflow inválido", errors: validated.error });
@@ -53,26 +63,27 @@ export class CampaignsService {
       workflow: validated.value,
       status: "draft",
     };
-    this.store.campaigns.set(record.id, record);
+    await this.campaigns.create(record);
     return record;
   }
 
-  get(id: string): CampaignRecord {
-    const rec = this.store.campaigns.get(id);
+  async get(id: string): Promise<CampaignRecord> {
+    const rec = await this.campaigns.get(id);
     if (!rec) throw new NotFoundException(`campanha ${id} não encontrada`);
     return rec;
   }
 
-  list(): CampaignRecord[] {
-    return [...this.store.campaigns.values()];
+  async list(): Promise<CampaignRecord[]> {
+    return this.campaigns.list();
   }
 
-  planDay(campaignId: string, input: PlanDayInput) {
-    this.get(campaignId);
-    if (this.store.killSwitch.isPaused) {
+  async planDay(campaignId: string, input: PlanDayInput) {
+    await this.get(campaignId);
+    const ks = await this.killSwitch.get();
+    if (ks.paused) {
       throw new ConflictException({
         message: "campanhas pausadas pelo kill-switch (fail-closed)",
-        reason: this.store.killSwitch.reason,
+        reason: ks.reason,
       });
     }
     const policy: AntiBanPolicy = {
@@ -86,14 +97,15 @@ export class CampaignsService {
     };
     const dayIndex = input.dayIndex ?? 0;
     const plan = new Sequencer(policy).planDay(input.leads, dayIndex, new Date());
-    this.store.counters.sent += plan.sends.length;
-    this.store.healthInput.sent += plan.sends.length;
+    const state = await this.counters.get();
+    state.counters.sent += plan.sends.length;
+    state.health.sent += plan.sends.length;
+    await this.counters.set(state);
     return { dayIndex, plan };
   }
 
-  simulateTurn(campaignId: string, input: SimulateTurnInput): StepResult {
-    const rec = this.get(campaignId);
-    const machine = new ConversationStateMachine(rec.workflow);
-    return machine.step(input.event, input.currentNode);
+  async simulateTurn(campaignId: string, input: SimulateTurnInput): Promise<StepResult> {
+    const rec = await this.get(campaignId);
+    return new ConversationStateMachine(rec.workflow).step(input.event, input.currentNode);
   }
 }
