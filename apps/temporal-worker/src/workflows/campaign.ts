@@ -26,6 +26,15 @@ export interface DispatchResult {
   replied: boolean;
 }
 
+export interface CampaignRunResult {
+  campaignId: string;
+  workflowValid: boolean;
+  /** Erros estruturados de validação — presentes quando workflowValid=false. */
+  validationErrors?: string[];
+  dispatched: number;
+  results: DispatchResult[];
+}
+
 export interface SendActivity {
   sendMessage(plan: PlanItem): Promise<Omit<DispatchResult, "leadId">>;
 }
@@ -34,16 +43,17 @@ const { sendMessage } = proxyActivities<SendActivity>({
   startToCloseTimeout: "30 seconds",
 });
 
-export async function campaignRun(input: CampaignRunInput): Promise<{
-  campaignId: string;
-  workflowValid: boolean;
-  dispatched: number;
-  results: DispatchResult[];
-}> {
+export async function campaignRun(input: CampaignRunInput): Promise<CampaignRunResult> {
   // Validação pura do core (fail-closed antes de despachar).
   const validated = validateWorkflow(input.workflow);
   if (!validated.ok) {
-    return { campaignId: input.campaignId, workflowValid: false, dispatched: 0, results: [] };
+    return {
+      campaignId: input.campaignId,
+      workflowValid: false,
+      validationErrors: validated.error,
+      dispatched: 0,
+      results: [],
+    };
   }
 
   const results: DispatchResult[] = [];

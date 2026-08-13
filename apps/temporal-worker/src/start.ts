@@ -15,6 +15,16 @@ const validWorkflow: Workflow = {
   edges: [{ from: "s1", to: "e" }],
 };
 
+/** Workflow inválido (entry inexistente) para exercitar o diagnóstico validationErrors. */
+const invalidWorkflow: Workflow = {
+  id: "wf-invalid",
+  version: 1,
+  name: "funil inválido",
+  entry: "nao-existe",
+  nodes: [{ id: "s", type: "send", config: { channel: "whatsapp", body: "oi" } }],
+  edges: [],
+};
+
 async function run(): Promise<void> {
   const connection = await Connection.connect({
     address: process.env.TEMPORAL_ADDRESS ?? "localhost:7233",
@@ -26,7 +36,7 @@ async function run(): Promise<void> {
 
   const input: CampaignRunInput = {
     campaignId: "demo-001",
-    workflow: validWorkflow,
+    workflow: process.env.WORKFLOW_INVALID === "1" ? invalidWorkflow : validWorkflow,
     plans: Array.from({ length: 8 }, (_, i) => ({
       leadId: `lead-${i}`,
       channel: "whatsapp" as const,

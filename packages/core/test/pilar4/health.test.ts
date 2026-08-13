@@ -38,9 +38,10 @@ describe("channelHealth + KillSwitch (S7)", () => {
     expect(alerts.some((a) => a.level === "critical" && a.rule === "kill_switch")).toBe(true);
   });
 
-  it("canal sem dados (sent=0) não dispara kill-switch", () => {
+  it("canal sem dados (sent=0) não dispara kill-switch e expõe no_data", () => {
     const h = channelHealth({ ...healthy, sent: 0, delivered: 0 });
-    expect(h.status).toBe("healthy");
+    expect(h.status).toBe("no_data");
+    expect(h.score).toBeNull();
     expect(h.killSwitch).toBe(false);
   });
 

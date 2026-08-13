@@ -39,6 +39,15 @@ flowchart TB
 - **Mocks isolados:** coletores, canais e agenda são providers mock; provedores reais trocam pelo mesmo contrato.
 - **Fail-closed:** config valida limites; compliance bloqueia opt-out/volume; kill-switch pausa campanhas.
 
+## Contrato do pacote `@growthos/core`
+- **Formato: CommonJS** (desde a Fase 2; `package.json` sem `type: module`).
+- **Mudança de contrato público registrada:** a conversão de ESM → CJS não apresentou regressão; consumidores validados:
+  - **NestJS** (`apps/api`, CJS) — `require`/`@growthos/core`;
+  - **Temporal** (`apps/temporal-worker`, CJS) — bundling do workflow via `require.resolve`;
+  - **Vite/ESM** (`apps/web` não consome core; `vitest` e `scripts/load-test.mjs` consomem via ESM interop).
+- `exports` resolve `@growthos/core` → `./dist/index.js` e `@growthos/core/<subpath>` → `./dist/<subpath>.js`.
+- Consumidores externos que exijam ESM puro (ex.: top-level await) **não são suportados** — documentado como limite do contrato.
+
 ## Repositório
 ```
 packages/core/          domínio TS (config, pilar2, pilar4, s9) — CommonJS

@@ -1,6 +1,6 @@
 /** Saúde do canal e kill-switch (Pilar 4) — fail-closed. */
 
-export type ChannelStatus = "healthy" | "warning" | "critical";
+export type ChannelStatus = "no_data" | "healthy" | "warning" | "critical";
 
 export interface ChannelHealthInput {
   delivered: number;
@@ -13,7 +13,8 @@ export interface ChannelHealthInput {
 }
 
 export interface ChannelHealth {
-  score: number;
+  /** null quando não há amostra suficiente de envios (sent <= 0). */
+  score: number | null;
   status: ChannelStatus;
   rejectionRate: number;
   killSwitch: boolean;
@@ -24,9 +25,9 @@ export interface ChannelHealth {
 export function channelHealth(input: ChannelHealthInput): ChannelHealth {
   const reasons: string[] = [];
 
-  // Sem dados de envio: nada a declarar como doente — nunca autopausa uma campanha nova.
+  // Sem dados de envio: contrato explícito de "no data" — nunca autopausa uma campanha nova.
   if (input.sent <= 0) {
-    return { score: 0, status: "healthy", rejectionRate: 0, killSwitch: false, reasons: ["sem_dados"] };
+    return { score: null, status: "no_data", rejectionRate: 0, killSwitch: false, reasons: ["sem_dados"] };
   }
 
   const delivery = (input.delivered / input.sent) * 100;

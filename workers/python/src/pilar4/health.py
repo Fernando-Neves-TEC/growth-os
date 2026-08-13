@@ -11,9 +11,9 @@ def channel_health(
     channel_min: float = 60.0,
     rejection_rate_max: float = 5.0,
 ) -> dict:
-    # Sem dados de envio: nunca autopausa uma campanha nova (fail-safe).
+    # Sem dados de envio: contrato explícito de "no data" — nunca autopausa uma campanha nova.
     if sent <= 0:
-        return {"score": 0.0, "status": "healthy", "rejection_rate": 0.0, "kill_switch": False, "reasons": ["sem_dados"]}
+        return {"score": None, "status": "no_data", "rejection_rate": 0.0, "kill_switch": False, "reasons": ["sem_dados"]}
 
     delivery = _pct(delivered, sent)
     rejection = _pct(rejected, sent)

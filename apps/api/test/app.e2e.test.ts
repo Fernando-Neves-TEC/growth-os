@@ -40,10 +40,11 @@ describe("Growth OS API (e2e)", () => {
     expect(res.body).toEqual([]);
   });
 
-  it("GET /channels/health está saudável sem dados (sem kill-switch)", async () => {
+  it("GET /channels/health expõe contrato no_data sem dados", async () => {
     const res = await request(app.getHttpServer()).get("/channels/health").expect(200);
     expect(res.body.killSwitch).toBe(false);
-    expect(res.body.status).toBe("healthy");
+    expect(res.body.status).toBe("no_data");
+    expect(res.body.score).toBeNull();
   });
 
   it("POST /campaigns cria campanha com workflow válido", async () => {
