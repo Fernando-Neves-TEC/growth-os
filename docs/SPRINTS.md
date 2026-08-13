@@ -119,6 +119,30 @@ Login (sucesso/inexistente/senha errada/inativo/vazio/email inválido) · sessã
 ### Regressão
 Build monorepo OK · typecheck OK · **core 59/59 · API 86/86 · web 5/5 · Python 51/51** · migrations 001–012 idempotentes · smoke real (login→me→admin→logout→401) · restart (sessão sobrevive).
 
+---
+
+## GAUNTLET SECURITY CLOSURE — fechamento das ressalvas da auditoria independente (SECURITY_AUDIT_PASS_WITH_RESERVATIONS)
+
+### ALTO — brute force no login
+- **Reprodução:** config padrão (global 1000/min), 7 logins errados consecutivos → **7×401, sem 429** (ALTO_REPRODUCED).
+- **Fix:** `@Throttle({ default: { limit: 5, ttl: 60_000 } })` em `POST /auth/login` (mecanismo oficial `@nestjs/throttler`; **independente** do global). `throttle.e2e.test.ts` deixa de depender do global; novo `login-rate.e2e.test.ts` roda sob config PADRÃO.
+- **Prova real:** 5×401 → **6ª e 7ª = 429**; `RATE_LIMIT_HIT` persistido no Postgres (ip/path/user_agent; metadata `{}` — sem segredos).
+- **Adversarial:** 4 erradas + 1 correta → 201 (não bloqueia legítimo); `X-Forwarded-For` forjado **não** ignora o contador (throttler usa IP do socket).
+
+### MÉDIO — CORS fail-closed em simulação
+- **Antes (live):** `Origin: http://evil.example` → **refletido** (`origin:true`).
+- **Fix:** `corsOptions()` — simulação autoriza apenas **origens LOCAIS** (`localhost:5173`/`127.0.0.1:5173`, `credentials:true`); `approved` sem allowlist continua bloqueando; `GROWTHOS_CORS_ORIGINS` tem precedência. Nunca wildcard/reflexo arbitrário.
+- **Depois (live):** `evil.example`/`localhost:9999` → **sem header**; `localhost:5173`/`127.0.0.1:5173` → refletidos. `cors.e2e.test.ts` (4 cenários: sim/allowlist/approved±allowlist).
+
+### Baixos
+- **A — FK auditoria:** migration `013` adiciona `security_audit_events.actor_operator_id → operators(id) ON DELETE SET NULL` (determinístico: órfãos→NULL antes; **histórico sobrevive** à remoção; prova real de enforcement). Idempotente.
+- **B — last_seen_at:** `touch(id)` amortizado (`last_seen_at < now()-1min`) chamado no `resolveSession`; impl pg + memory; teste de integração prova o update.
+- **Revoke-all:** `revokeAllSessions(operatorId)` (pg + memory) + `AuthService.revokeAllSessions(email)` (audita `AUTH_LOGOUT`/`reason=revoke_all`) + CLI `npm run admin:revoke-sessions --workspace=@growthos/api <email>` (**sem endpoint HTTP**). Prova real: login 201 → revoke → `/auth/me` **401** → evento no banco.
+
+### Regressão (pós-closure)
+Build OK · typecheck OK · **core 59/59 · API 96/96 (12 files) · web 5/5 · Python 51/51** · migrations 001–013 idempotentes · smoke real completo (throttle 429 + `RATE_LIMIT_HIT` + CORS fail-closed + login→me→CSRF→logout→401 + revoke-all CLI→401).
+`EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL` mantido (sem serviço externo conectado). Verdict **CANDIDATE_DONE** (DONE reservado ao auditor independente).
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.

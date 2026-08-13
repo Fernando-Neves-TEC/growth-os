@@ -35,8 +35,9 @@ Baseado nos documentos de estratégia e especificação:
   - **H5** kill-switch **durante a execução** (interrompe novos envios entre leads; prova real: 2/300 enviados, `paused:true`, resume manual + re-run idempotente).
   - **H6** rate limiting + payload limit + CORS por ambiente.
   - **GAUNTLET SECURITY MAINTENANCE (S2/S10):** autenticação **humana** (operadores + sessões servidor-side + cookie HttpOnly + CSRF) separada da credencial **M2M** (`X-Api-Key`); **`VITE_API_KEY` removido do frontend** (nunca mais a chave administrativa no bundle); auditoria de segurança estruturada (S10) persistida e consultável.
+  - **GAUNTLET SECURITY CLOSURE (auditoria independente):** ALTO brute-force no login (limite específico **5/min por IP** em `POST /auth/login` → 429 + `RATE_LIMIT_HIT`) · MÉDIO **CORS fail-closed** (simulação só autoriza origens locais do dashboard; sem reflexo arbitrário) · baixos (FK auditoria `SET NULL`, `last_seen_at`, **revoke-all** via CLI `admin:revoke-sessions`).
   - **Médios:** FK `leads_enriched→pipeline_runs` (migration 009), runner de migrations com lock/transação, conformidade TS/Python **cruzada real** (referência do core), CI com Postgres services (testes de integração nunca pulam silenciosamente), testes do cliente web.
-- **Provas reais:** restart com kill-switch/suppression duráveis · workflow Temporal via produto (campanha `49b0f2d8`: l0 supprimido = 0 eventos) · kill-switch em tempo real (2/300, resume + re-run 300 idempotente) · boot fail-closed em `approved` sem chave · **S2**: canary de API key NÃO está no bundle · **S2**: login→sessão→ação administrativa→logout→401 · **S2**: sessão sobrevive a restart (Postgres) · **S10**: eventos de segurança persistidos e redigidos.
+- **Provas reais:** restart com kill-switch/suppression duráveis · workflow Temporal via produto (campanha `49b0f2d8`: l0 supprimido = 0 eventos) · kill-switch em tempo real (2/300, resume + re-run 300 idempotente) · boot fail-closed em `approved` sem chave · **S2**: canary de API key NÃO está no bundle · **S2**: login→sessão→ação administrativa→logout→401 · **S2**: sessão sobrevive a restart (Postgres) · **S10**: eventos de segurança persistidos e redigidos · **SECURITY CLOSURE**: brute force login 5×401→6ª 429 + `RATE_LIMIT_HIT` no banco · CORS evil bloqueado em simulação (localhost autorizado) · revoke-all CLI derruba sessão (401) + `AUTH_LOGOUT/reason=revoke_all`.
 
 ## Sprints
 Ver `docs/SPRINTS.md` para o mapeamento sprint → artefatos → status.
@@ -54,7 +55,7 @@ docker compose up -d            # postgres+pgvector (5433), redis (6379), tempor
 cp .env.example .env
 npm install
 npm run build                   # compila core + api + worker + web
-npm run migrate --workspace=@growthos/api   # aplica migrations 001–012 (idempotentes, com lock)
+npm run migrate --workspace=@growthos/api   # aplica migrations 001–013 (idempotentes, com lock)
 npm run admin:create --workspace=@growthos/api admin@clinica.local   # cria o primeiro operador (CLI local)
 npm test                        # testes dos workspaces TS (core 59 + api 86 + web 5)
 npm run dev --workspace=@growthos/api       # API em http://localhost:3000

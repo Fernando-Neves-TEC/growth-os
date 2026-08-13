@@ -80,7 +80,8 @@ scripts/load-test.mjs   teste de carga simulado · scripts/health-reference.mjs 
 ## Segurança (GAUNTLET V2)
 - **Contrato de modos (C2):** `approved` exige `GROWTHOS_API_KEY` no boot (`assertSafeBoot`) e no guard em todas as rotas — fail-closed. `simulation`/`design` permitem dev local sem chave.
 - `ApiKeyGuard` + `ThrottlerGuard` (rate limit env `GROWTHOS_RATE_LIMIT_*`, 429) + `AllExceptionsFilter` (erros estruturados; mapeia `FUNNEL_INVARIANT`→422 e payload→413) + `ZodValidationPipe` (validação estruturada H4) + `ParseUUIDPipe` (404 H3).
-- CORS por ambiente (`GROWTHOS_CORS_ORIGINS`; approved sem allowlist bloqueia) · payload limit (`GROWTHOS_BODY_LIMIT`).
+- CORS por ambiente **fail-closed em todos os modos** (`GROWTHOS_CORS_ORIGINS` tem precedência; `approved` sem allowlist bloqueia; `simulation` só autoriza origens LOCAIS do dashboard `localhost:5173`/`127.0.0.1:5173` — nunca reflete origem arbitrária) · payload limit (`GROWTHOS_BODY_LIMIT`).
+- **Login anti-brute-force (SECURITY CLOSURE):** limite ESPECÍFICO de `POST /auth/login` = **5/min por IP** (`@Throttle` no controller, independente do global `GROWTHOS_RATE_LIMIT_*`); excedido → 429 + `RATE_LIMIT_HIT`. Sem bypass por `X-Forwarded-For` (throttler usa o IP do socket; provado em teste adversarial).
 - Sanitização de texto via `s9/security` no core; sem credenciais reais no repositório (apenas `.env.example`).
 
 ## Autenticação humana (S2) + auditoria de segurança (S10)
@@ -93,8 +94,8 @@ scripts/load-test.mjs   teste de carga simulado · scripts/health-reference.mjs 
   - `public`: `POST /auth/login`, `GET /auth/me`, `GET /channels/health`.
   - `human` (sessão): `/status`, `/metrics/funnel`, `/campaigns*`, `/suppression` (list/add), `/leads*`, `/channels/pause|resume`, `/security/audit`.
   - `shared` (sessão OU chave): `POST /events`, `GET /channels/kill-switch`, `GET /suppression/:cnpj`.
-- **Sessão persistente** em Postgres (sobrevive a restart — provado; contrato de expiração `GROWTHOS_SESSION_TTL_MS`, revogação por logout/desativação).
-- **S10 — auditoria de segurança**: `SecurityAuditService` emite eventos estruturados (`AUTH_LOGIN_SUCCESS/FAILURE`, `AUTH_LOGOUT`, `AUTH_SESSION_INVALID`, `AUTHORIZATION_DENIED`, `RATE_LIMIT_HIT`) com metadados seguros (request_id, ip, path, user_agent, actor), persistidos em `security_audit_events` (append-only, servidor) e consultáveis por `GET /security/audit` (humano). **Redação garantida por construção** (nunca senha/API key/session/CSRF/connection string) — testado. Sink externo previsto via `SecurityAuditSink` (adapter no-op).
+- **Sessão persistente** em Postgres (sobrevive a restart — provado; contrato de expiração `GROWTHOS_SESSION_TTL_MS`, revogação por logout/desativação). **`last_seen_at`** atualizado a cada uso (touch amortizado ≥1min — sem write amplification). **Revoke-all** (troca de senha/vazamento) via CLI local `npm run admin:revoke-sessions --workspace=@growthos/api <email>` — **sem endpoint HTTP**; registra `AUTH_LOGOUT`/`reason=revoke_all`.
+- **S10 — auditoria de segurança**: `SecurityAuditService` emite eventos estruturados (`AUTH_LOGIN_SUCCESS/FAILURE`, `AUTH_LOGOUT`, `AUTH_SESSION_INVALID`, `AUTHORIZATION_DENIED`, `RATE_LIMIT_HIT`) com metadados seguros (request_id, ip, path, user_agent, actor), persistidos em `security_audit_events` (append-only, servidor) e consultáveis por `GET /security/audit` (humano). Migration `013` adiciona FK `actor_operator_id → operators(id) ON DELETE SET NULL` — **histórico de auditoria sobrevive à remoção do operador** (prova real). **Redação garantida por construção** (nunca senha/API key/session/CSRF/connection string) — testado. Sink externo previsto via `SecurityAuditSink` (adapter no-op).
   - `SECURITY EVENT DETECTION: IMPLEMENTED` · `EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL`.
 
 ## Roadmap de evolução
@@ -102,5 +103,6 @@ scripts/load-test.mjs   teste de carga simulado · scripts/health-reference.mjs 
 2. **Fase 2:** API NestJS + worker Temporal (workflow real) + dashboard React. ✅
 3. **Fase 3 (Blocos 1 + A–F):** persistência durável, eventos idempotentes, pipeline persistente, execução Temporal, dashboard, segurança, conformidade + CI. ✅
 4. **GAUNTLET V2 (hardening):** C1 (API→Temporal), C2 (modos fail-closed), H1 (eventos atômicos), H2 (invariantes), H3 (404), H4 (validação), H5 (kill-switch em execução + resume), H6 (rate/payload/CORS), H7 (dashboard com key), médios (FK, migrations lock, conformidade cruzada, CI com Postgres). ✅
-5. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com, Maps/CNPJ reais) — **somente** com `GROWTHOS_MODE=approved` e credenciais reais (atualmente **BLOCKED_EXTERNAL**).
-6. **Fase 4:** builder drag-and-drop completo + multi-tenant.
+5. **GAUNTLET SECURITY CLOSURE (ressalvas da auditoria independente):** ALTO brute-force no login (limite específico 5/min por IP + `RATE_LIMIT_HIT` real) · MÉDIO CORS fail-closed em simulação (allowlist local, sem reflexo arbitrário) · baixos (FK auditoria `SET NULL`, `last_seen_at`, revoke-all CLI). ✅
+6. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com, Maps/CNPJ reais) — **somente** com `GROWTHOS_MODE=approved` e credenciais reais (atualmente **BLOCKED_EXTERNAL**).
+7. **Fase 4:** builder drag-and-drop completo + multi-tenant.

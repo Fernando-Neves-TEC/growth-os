@@ -79,7 +79,8 @@ Autenticação: `GROWTHOS_API_KEY` (header `X-Api-Key`). Em `GROWTHOS_MODE=appro
 
 - Payload: `GROWTHOS_BODY_LIMIT` (padrão `100kb`; excedido → 413).
 - Rate limit por IP: `GROWTHOS_RATE_LIMIT_TTL_MS`/`GROWTHOS_RATE_LIMIT_MAX` (padrão `60000`/`1000`; excedido → 429).
-- CORS: `GROWTHOS_CORS_ORIGINS` (allowlist). Em `approved` sem allowlist, origens externas são **bloqueadas** (fail-closed).
+- **Login:** limite ESPECÍFICO `POST /auth/login` = **5/min por IP** (independente do global; 5ª→401, **6ª→429**; evento `RATE_LIMIT_HIT` persistido; sem bypass por `X-Forwarded-For`).
+- CORS: `GROWTHOS_CORS_ORIGINS` (allowlist; tem precedência). Em `approved` sem allowlist, origens externas são **bloqueadas** (fail-closed). Em `simulation`, apenas origens LOCAIS do dashboard (`localhost:5173`/`127.0.0.1:5173`) são autorizadas — origem arbitrária **não** é refletida.
 
 ## 4.1 Kill-switch (emergência, inclusive durante execução)
 
@@ -102,9 +103,10 @@ Autenticação: `GROWTHOS_API_KEY` (header `X-Api-Key`). Em `GROWTHOS_MODE=appro
 - **Login:** `POST /auth/login {email, password}` → sessão em cookie `HttpOnly`/`SameSite=Lax`/`Secure`(approved) + `csrfToken`.
 - **Mutações autenticadas por sessão** exigem header `X-CSRF-Token` (403 se ausente/errado).
 - **Logout:** `POST /auth/logout` revoga a sessão (pós-logout tudo exige login).
-- **Sessão persistente** em Postgres: sobrevive a restart; expiração `GROWTHOS_SESSION_TTL_MS` (padrão 8h).
-- **Brute force:** o rate limit global cobre `/auth/login` (429; política via `GROWTHOS_RATE_LIMIT_*`).
-- **Auditoria de segurança (S10):** eventos estruturados persistidos em `security_audit_events`; consultar `GET /security/audit` (operador humano). Detecção local **IMPLEMENTED**; entrega de alerta externo **BLOCKED_EXTERNAL** (sem serviço conectado).
+- **Sessão persistente** em Postgres: sobrevive a restart; expiração `GROWTHOS_SESSION_TTL_MS` (padrão 8h); `last_seen_at` atualizado a cada uso (touch amortizado ≥1min).
+- **Brute force:** limite ESPECÍFICO de login (5/min por IP) — 401 nas 5 primeiras tentativas erradas, **429 na 6ª**; evento `RATE_LIMIT_HIT` persistido (sem segredos).
+- **Revoke-all (troca de senha/vazamento):** `npm run admin:revoke-sessions --workspace=@growthos/api <email>` revoga TODAS as sessões ativas do operador (sem endpoint HTTP; registra `AUTH_LOGOUT`/`reason=revoke_all`).
+- **Auditoria (S10):** eventos persistidos em `security_audit_events` (FK `actor_operator_id` `ON DELETE SET NULL` — histórico sobrevive à remoção do operador); consultar `GET /security/audit` (operador humano). Detecção local **IMPLEMENTED**; entrega de alerta externo **BLOCKED_EXTERNAL** (sem serviço conectado).
 
 ## 6. Conformidade (não negociável)
 
