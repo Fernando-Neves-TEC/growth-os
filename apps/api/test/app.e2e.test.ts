@@ -92,6 +92,14 @@ describe("Growth OS API (e2e)", () => {
     expect(res.body.status).toBe("draft");
   });
 
+  it("GET /status expõe observabilidade consolidada", async () => {
+    const res = await request(app.getHttpServer()).get("/status").expect(200);
+    expect(res.body.mode).toBeDefined();
+    expect(typeof res.body.uptimeSeconds).toBe("number");
+    expect(res.body.leads).toBe(0);
+    expect(typeof res.body.health.status).toBe("string");
+  });
+
   it("POST /campaigns rejeita workflow inválido (fail-closed)", async () => {
     const res = await request(app.getHttpServer())
       .post("/campaigns")

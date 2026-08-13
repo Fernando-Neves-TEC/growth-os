@@ -50,6 +50,7 @@ export class CampaignsService {
   ) {}
 
   async create(input: CreateCampaignInput): Promise<CampaignRecord> {
+    if (!input?.name?.trim()) throw new BadRequestException("name é obrigatório");
     const validated = validateWorkflow(input.workflow);
     if (!validated.ok) {
       throw new BadRequestException({ message: "workflow inválido", errors: validated.error });
@@ -76,6 +77,7 @@ export class CampaignsService {
 
   async planDay(campaignId: string, input: PlanDayInput) {
     await this.get(campaignId);
+    if (!Array.isArray(input?.leads)) throw new BadRequestException("leads é obrigatório");
     const ks = await this.killSwitch.get();
     if (ks.paused) {
       throw new ConflictException({
