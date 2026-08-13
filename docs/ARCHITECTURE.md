@@ -41,14 +41,16 @@ flowchart TB
 
 ## Repositório
 ```
-packages/core/          domínio TS (config, pilar2, pilar4, s9)
+packages/core/          domínio TS (config, pilar2, pilar4, s9) — CommonJS
 workers/python/         workers: pilar1, pilar3, pilar4, simulation
+apps/api/               API NestJS (campaigns, health, metrics) sobre o core
+apps/temporal-worker/   worker Temporal + workflow campaignRun (atividades mock)
+apps/web/               dashboard React (builder + métricas + saúde)
 migrations/             SQL (pgvector)
 scripts/load-test.mjs   teste de carga simulado
-apps/                   API (NestJS) e web (React) — próximas fases
 ```
 
 ## Roadmap de evolução
-1. **Fase 2:** API NestJS + Temporal worker conectados ao core (em nova sprint autorizada).
-2. **Fase 3:** provedores reais (WhatsApp Business, e-mail verificado, Cal.com) — **somente** com `GROWTHOS_MODE=approved`.
-3. **Fase 4:** dashboard React com builder drag-and-drop.
+1. **Fase 2 (entregue):** API NestJS + worker Temporal (workflow executado no Temporal local) + dashboard React — integrados sobre o core validado.
+2. **Fase 3:** persistência real (PostgreSQL/pgvector) na API e worker; provedores reais (WhatsApp Business, e-mail verificado, Cal.com) — **somente** com `GROWTHOS_MODE=approved`.
+3. **Fase 4:** builder drag-and-drop completo no dashboard + multi-tenant.

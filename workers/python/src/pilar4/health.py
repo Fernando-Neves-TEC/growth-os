@@ -11,6 +11,10 @@ def channel_health(
     channel_min: float = 60.0,
     rejection_rate_max: float = 5.0,
 ) -> dict:
+    # Sem dados de envio: nunca autopausa uma campanha nova (fail-safe).
+    if sent <= 0:
+        return {"score": 0.0, "status": "healthy", "rejection_rate": 0.0, "kill_switch": False, "reasons": ["sem_dados"]}
+
     delivery = _pct(delivered, sent)
     rejection = _pct(rejected, sent)
     score = (delivery / 100) * 30 + (read_rate / 100) * 25 + (reply_rate / 100) * 25 + max(0.0, 1 - rejection / 100) * 20

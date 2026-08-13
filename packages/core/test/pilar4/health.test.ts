@@ -38,6 +38,12 @@ describe("channelHealth + KillSwitch (S7)", () => {
     expect(alerts.some((a) => a.level === "critical" && a.rule === "kill_switch")).toBe(true);
   });
 
+  it("canal sem dados (sent=0) não dispara kill-switch", () => {
+    const h = channelHealth({ ...healthy, sent: 0, delivered: 0 });
+    expect(h.status).toBe("healthy");
+    expect(h.killSwitch).toBe(false);
+  });
+
   it("kill-switch pausa e requer retomada explícita", () => {
     const ks = new KillSwitch();
     expect(ks.isPaused).toBe(false);

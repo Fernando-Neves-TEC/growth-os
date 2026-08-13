@@ -23,8 +23,14 @@ export interface ChannelHealth {
 /** Score 0-100: entrega (30) + leitura (25) + resposta (25) + penalidade de rejeição (20). */
 export function channelHealth(input: ChannelHealthInput): ChannelHealth {
   const reasons: string[] = [];
-  const delivery = input.sent > 0 ? (input.delivered / input.sent) * 100 : 0;
-  const rejection = input.sent > 0 ? (input.rejected / input.sent) * 100 : 0;
+
+  // Sem dados de envio: nada a declarar como doente — nunca autopausa uma campanha nova.
+  if (input.sent <= 0) {
+    return { score: 0, status: "healthy", rejectionRate: 0, killSwitch: false, reasons: ["sem_dados"] };
+  }
+
+  const delivery = (input.delivered / input.sent) * 100;
+  const rejection = (input.rejected / input.sent) * 100;
 
   let score = 0;
   score += (delivery / 100) * 30;

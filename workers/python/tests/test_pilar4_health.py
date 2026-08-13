@@ -21,6 +21,13 @@ def test_saude_do_canal_saudavel():
     assert h["kill_switch"] is False
 
 
+def test_saude_sem_dados_nao_dispara_kill_switch():
+    h = channel_health(delivered=0, sent=0, rejected=0, read_rate=0, reply_rate=0)
+    assert h["status"] == "healthy"
+    assert h["kill_switch"] is False
+    assert "sem_dados" in h["reasons"]
+
+
 def test_rejeicao_dispara_kill_switch():
     h = channel_health(delivered=90, sent=100, rejected=12, read_rate=60, reply_rate=20, rejection_rate_max=5)
     assert h["status"] == "critical"

@@ -4,7 +4,8 @@
   "private": true,
   "description": "Growth OS — Motor de prospecção ativa, extração de leads e funil de conversão autônomo",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",

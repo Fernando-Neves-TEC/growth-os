@@ -37,6 +37,15 @@ Legenda: ✅ implementado · 🟡 parcial · ⬜ pendente
 - **Git pós-gate:** árvore limpa; diff e index vazios.
 - **Próxima ação:** **Fase 2 — API NestJS + worker Temporal + dashboard React** integrados sobre esta base validada.
 
+## Checkpoint FASE 2 (2026-08-13) — entregue ✅
+- **API NestJS** (`apps/api`): módulos campaigns (builder/validação, plan-day com warm-up, state machine), health (saúde/kill-switch), metrics (funil/ARR). Build OK · **12/12 testes** (unit + e2e supertest) · boot real validado.
+- **Worker Temporal** (`apps/temporal-worker`): workflow `campaignRun` (usa `validateWorkflow` do core) + activities mock. Build OK · **workflow executado no Temporal local** (Docker): `workflowValid: true`, `dispatched: 8`.
+- **Dashboard React** (`apps/web`): HealthPanel (saúde/kill-switch/ARR) + CampaignBuilder (JSON → criar campanha → simular turno). **Build de produção Vite OK**.
+- **Ajuste de base:** `@growthos/core` convertido para **CommonJS** para compatibilidade com NestJS/Temporal (consumidores CJS); workspaces ampliados para `apps/*`.
+- **Melhoria de lógica:** guarda "sem dados" no `channelHealth` — canal sem envios (`sent=0`) nunca autopausa (kill-switch fail-safe).
+- **Regressão Fase 2:** build monorepo OK · core **42/42** · API **12/12** · Python **49/49**.
+- **Infra:** Temporal (Docker) operacional para integração real do worker.
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.
