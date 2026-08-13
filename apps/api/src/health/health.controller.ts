@@ -13,7 +13,8 @@ export class HealthController {
   @Public()
   @Get("health")
   status() {
-    return this.health.channel();
+    // F-09: health público NÃO expõe estado administrativo (kill-switch).
+    return this.health.publicStatus();
   }
 
   @Shared() // dashboard (sessão) e worker (M2M)

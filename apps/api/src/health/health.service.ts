@@ -24,6 +24,14 @@ export class HealthService {
     });
   }
 
+  /** F-09 (HARDENING): projeção do endpoint PÚBLICO /channels/health — somente saúde operacional
+   *  mínima (score/status/rejectionRate/reasons). O estado administrativo do kill-switch
+   *  (paused/reason) permanece exclusivo de GET /channels/kill-switch (rota shared). */
+  async publicStatus() {
+    const full = await this.channel();
+    return { score: full.score, status: full.status, rejectionRate: full.rejectionRate, reasons: full.reasons };
+  }
+
   async killSwitchState() {
     return this.killSwitch.get();
   }

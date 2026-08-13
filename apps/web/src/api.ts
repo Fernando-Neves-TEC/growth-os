@@ -44,7 +44,6 @@ export interface Health {
   score: number | null;
   status: string;
   rejectionRate: number;
-  killSwitch: boolean;
   reasons: string[];
 }
 

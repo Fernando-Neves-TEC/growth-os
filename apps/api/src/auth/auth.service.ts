@@ -31,6 +31,14 @@ export function hashToken(token: string): string {
 
 export { SESSION_COOKIE };
 
+/** F-01 — equalização de timing no login: hash Argon2id dummy mantido SÓ em memória (senha aleatória
+ *  gerada na primeira necessidade; nunca persistida nem logada). Usa a MESMA lib/parâmetros reais. */
+let dummyHash: string | undefined;
+async function timingEqualizedVerify(password: string): Promise<boolean> {
+  if (!dummyHash) dummyHash = await hashPassword(randomBytes(24).toString("base64url"));
+  return verifyPassword(dummyHash, password);
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -51,7 +59,12 @@ export class AuthService {
     const email = input.email.trim().toLowerCase();
     const operator = await this.operators.findByEmail(email);
     // Mensagem genérica para não permitir enumeração de usuário.
-    const ok = operator !== null && (await verifyPassword(operator.passwordHash, input.password));
+    // F-01 (HARDENING): equalização de timing — usuário inexistente também executa um verify
+    // Argon2id (hash dummy em memória) para aproximar o custo de "senha errada" em usuário existente.
+    // Não é constant-time rigoroso; é equalização de timing. Não enfraquece o rate limit de login.
+    const ok = operator
+      ? await verifyPassword(operator.passwordHash, input.password)
+      : await timingEqualizedVerify(input.password);
     if (!operator || !ok) {
       await this.audit.record("AUTH_LOGIN_FAILURE", {
         ...ctx,
@@ -165,6 +178,9 @@ export class AuthService {
   }
 
   async createOperator(email: string, password: string, role = "admin"): Promise<{ id: string; email: string; role: string }> {
+    // F-10 (HARDENING): nesta fase existe SOMENTE o papel 'admin' (sem RBAC). Rejeita qualquer outro
+    // papel para não gravar estado ambíguo (a migration 014 também impõe CHECK (role = 'admin')).
+    if (role !== "admin") throw new Error(`papel não suportado: ${role} (somente 'admin' nesta fase)`);
     const passwordHash = await hashPassword(password);
     const id = randomUUID();
     await this.operators.create({

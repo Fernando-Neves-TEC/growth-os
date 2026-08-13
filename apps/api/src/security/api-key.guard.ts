@@ -1,5 +1,15 @@
 import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from "@nestjs/common";
+import { timingSafeEqual } from "node:crypto";
 import type { Request } from "express";
+
+/** F-07 (HARDENING): comparação timing-safe (constant-time) da chave M2M.
+ *  Comprimentos diferentes → falha segura sem lançar (timingSafeEqual exige buffers do mesmo tamanho). */
+function safeKeyEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
 
 /**
  * Credencial MÁQUINA-A-MÁQUINA (M2M), com contrato de modos (C2):
@@ -23,9 +33,9 @@ export class ApiKeyGuard implements CanActivate {
     const provided = req.headers?.["x-api-key"] as string | undefined;
 
     if (mode === "approved") {
-      return !!key && !!provided && provided === key;
+      return !!key && !!provided && safeKeyEqual(provided, key);
     }
     if (!key) return true; // auth desativada (dev local / simulação)
-    return !!provided && provided === key;
+    return !!provided && safeKeyEqual(provided, key);
   }
 }

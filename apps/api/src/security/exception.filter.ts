@@ -29,8 +29,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
           : exception instanceof FunnelInvariantError
             ? HttpStatus.UNPROCESSABLE_ENTITY
             : HttpStatus.INTERNAL_SERVER_ERROR;
+    // F-11 (HARDENING): 429 não expõe a classe interna do throttler (ThrottlerException).
+    const is429 = status === HttpStatus.TOO_MANY_REQUESTS;
     const body = exception instanceof HttpException
-      ? exception.getResponse()
+      ? is429
+        ? { message: "muitas requisições" }
+        : exception.getResponse()
       : is413
         ? { message: "payload muito grande" }
         : exception instanceof FunnelInvariantError

@@ -37,7 +37,6 @@ export function HealthPanel() {
       <h2>Saúde do canal</h2>
       <p>
         Status: <strong>{health?.status}</strong> · score {health?.score ?? "n/d"}/100 · rejeição {health?.rejectionRate}%
-        {health?.killSwitch ? " ⛔ kill-switch ATIVO" : ""}
       </p>
       {health?.reasons?.map((r) => <p key={r}>· {r}</p>)}
       <p>

@@ -140,7 +140,8 @@ describe("Growth OS API (e2e)", () => {
 
   it("GET /channels/health expõe contrato no_data sem dados (rota pública)", async () => {
     const res = await agent.get("/channels/health").expect(200);
-    expect(res.body.killSwitch).toBe(false);
+    // F-09: health público NÃO expõe estado administrativo (kill-switch).
+    expect(res.body.killSwitch).toBeUndefined();
     expect(res.body.status).toBe("no_data");
     expect(res.body.score).toBeNull();
   });
@@ -182,8 +183,9 @@ describe("Growth OS API (e2e)", () => {
   it("GET /channels/health reflete envio sem entrega como crítico (via evento)", async () => {
     await post("/events", { eventId: "e-crit-1", type: "sent" }).expect(201);
     const res = await agent.get("/channels/health").expect(200);
-    // sent>0 e delivered=0 → canal crítico (autopausa)
-    expect(res.body.killSwitch).toBe(true);
+    // sent>0 e delivered=0 → status crítico (autopausa). F-09: flag administrativo não é exposto.
+    expect(res.body.status).toBe("critical");
+    expect(res.body.killSwitch).toBeUndefined();
   });
 
   it("kill-switch pausa e bloqueia planejamento (fail-closed)", async () => {

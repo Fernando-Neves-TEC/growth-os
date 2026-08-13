@@ -9,7 +9,9 @@ import { AuthService, SESSION_COOKIE } from "./auth.service.js";
 import { Human, Public } from "./auth.decorators.js";
 
 const LoginSchema = z.object({
-  email: z.string().email("email inválido"),
+  // F-02 (HARDENING): teto de tamanho de email (RFC 5321 — 254 chars) antes de chegar ao AuthService
+  // e ao log de auditoria. Emails gigantes são rejeitados com 400 (nunca persistem em metadata).
+  email: z.string().email("email inválido").max(254, "email muito longo"),
   password: z.string().min(8, "senha muito curta"),
 });
 

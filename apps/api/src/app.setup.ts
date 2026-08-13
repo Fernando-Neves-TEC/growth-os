@@ -3,6 +3,7 @@ import cookieParser from "cookie-parser";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 
 export function configureApp(app: NestExpressApplication): void {
+  app.disable("x-powered-by"); // F-14 (HARDENING): não expor o framework em headers de resposta.
   app.use(cookieParser());
   app.useBodyParser("json", { limit: process.env.GROWTHOS_BODY_LIMIT ?? "100kb" });
   app.enableCors(corsOptions());
