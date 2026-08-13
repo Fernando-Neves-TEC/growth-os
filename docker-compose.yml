@@ -29,23 +29,22 @@ services:
       retries: 10
 
   temporal:
-    image: temporalio/auto-setup:1.24
+    image: temporalio/auto-setup:1.29.7
     container_name: growthos-temporal
     depends_on:
       - postgres
     environment:
-      - DB=postgresql
+      - DB=postgres12_pgx
       - DB_PORT=5432
       - POSTGRES_USER=growthos
       - POSTGRES_PWD=growthos
       - POSTGRES_SEEDS=postgres
-      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     ports:
       - "7233:7233" # frontend (gRPC)
       - "8233:8233" # UI
 
   temporal-ui:
-    image: temporalio/ui:2.24
+    image: temporalio/ui:2.53.2
     container_name: growthos-temporal-ui
     depends_on:
       - temporal
