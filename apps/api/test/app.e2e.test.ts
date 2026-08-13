@@ -8,10 +8,12 @@ import {
   COUNTER_STORE,
   EVENT_STORE,
   KILL_SWITCH_STORE,
+  LEAD_STORE,
   MemoryCampaignStore,
   MemoryCounterStore,
   MemoryEventStore,
   MemoryKillSwitchStore,
+  MemoryLeadStore,
   MemorySuppressionStore,
   SUPPRESSION_STORE,
 } from "../src/persistence/stores.js";
@@ -50,6 +52,8 @@ describe("Growth OS API (e2e)", () => {
       .useValue(new MemoryCounterStore())
       .overrideProvider(EVENT_STORE)
       .useValue(new MemoryEventStore())
+      .overrideProvider(LEAD_STORE)
+      .useValue(new MemoryLeadStore())
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -62,6 +66,14 @@ describe("Growth OS API (e2e)", () => {
   it("GET /campaigns começa vazio", async () => {
     const res = await request(app.getHttpServer()).get("/campaigns").expect(200);
     expect(res.body).toEqual([]);
+  });
+
+  it("GET /leads começa vazio (sem runs de pipeline)", async () => {
+    const res = await request(app.getHttpServer()).get("/leads").expect(200);
+    expect(res.body.total).toBe(0);
+    expect(res.body.items).toEqual([]);
+    const runs = await request(app.getHttpServer()).get("/leads/runs").expect(200);
+    expect(runs.body).toEqual([]);
   });
 
   it("GET /channels/health expõe contrato no_data sem dados", async () => {

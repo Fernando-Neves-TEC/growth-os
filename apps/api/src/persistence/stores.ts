@@ -151,3 +151,53 @@ export class MemoryEventStore implements EventStore {
     return { duplicate: false };
   }
 }
+
+// ---------- Leads (pipeline persistido) ----------
+export interface LeadRecord {
+  cnpj: string;
+  companyName: string;
+  cnae: string;
+  city: string;
+  state: string;
+  whatsapp: string | null;
+  email: string | null;
+  icpFitScore: number;
+  source: string;
+  pipelineRunId: string | null;
+  processedAt: string;
+}
+
+export interface PipelineRunRecord {
+  runId: string;
+  query: string | null;
+  region: string | null;
+  collected: number;
+  deduplicated: number;
+  rejected: number;
+  qualified: number;
+  createdAt: string;
+}
+
+export interface LeadStore {
+  listLeads(limit: number, offset: number): Promise<LeadRecord[]>;
+  listRuns(limit: number): Promise<PipelineRunRecord[]>;
+  countLeads(): Promise<number>;
+}
+
+export const LEAD_STORE = Symbol("LEAD_STORE");
+
+@Injectable()
+export class MemoryLeadStore implements LeadStore {
+  private leads: LeadRecord[] = [];
+  private runs: PipelineRunRecord[] = [];
+
+  async listLeads(limit: number, offset: number): Promise<LeadRecord[]> {
+    return this.leads.slice(offset, offset + limit);
+  }
+  async listRuns(limit: number): Promise<PipelineRunRecord[]> {
+    return this.runs.slice(0, limit);
+  }
+  async countLeads(): Promise<number> {
+    return this.leads.length;
+  }
+}

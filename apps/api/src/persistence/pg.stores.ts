@@ -13,6 +13,9 @@ import type {
   HealthSample,
   KillSwitchState,
   KillSwitchStore,
+  LeadRecord,
+  LeadStore,
+  PipelineRunRecord,
   SuppressionStore,
 } from "./stores.js";
 import type { Pool } from "pg";
@@ -167,5 +170,75 @@ export class PgEventStore implements EventStore {
       [event.eventId, event.type, event.cnpj ?? null, event.channel ?? null],
     );
     return { duplicate: (rowCount ?? 0) === 0 };
+  }
+}
+
+@Injectable()
+export class PgLeadStore implements LeadStore {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  async listLeads(limit: number, offset: number): Promise<LeadRecord[]> {
+    const { rows } = await this.pool.query<{
+      cnpj: string;
+      company_name: string;
+      cnae: string;
+      city: string;
+      state: string;
+      whatsapp: string | null;
+      email: string | null;
+      icp_fit_score: string;
+      source: string;
+      pipeline_run_id: string | null;
+      processed_at: string;
+    }>(
+      `SELECT cnpj, company_name, cnae, city, state, whatsapp, email, icp_fit_score, source, pipeline_run_id, processed_at
+       FROM leads_enriched ORDER BY icp_fit_score DESC LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    );
+    return rows.map((r) => ({
+      cnpj: r.cnpj,
+      companyName: r.company_name,
+      cnae: r.cnae,
+      city: r.city,
+      state: r.state,
+      whatsapp: r.whatsapp,
+      email: r.email,
+      icpFitScore: Number(r.icp_fit_score),
+      source: r.source,
+      pipelineRunId: r.pipeline_run_id,
+      processedAt: r.processed_at,
+    }));
+  }
+
+  async listRuns(limit: number): Promise<PipelineRunRecord[]> {
+    const { rows } = await this.pool.query<{
+      run_id: string;
+      query: string | null;
+      region: string | null;
+      collected: number;
+      deduplicated: number;
+      rejected: number;
+      qualified: number;
+      created_at: string;
+    }>(
+      `SELECT run_id, query, region, collected, deduplicated, rejected, qualified, created_at
+       FROM pipeline_runs ORDER BY created_at DESC LIMIT $1`,
+      [limit],
+    );
+    return rows.map((r) => ({
+      runId: r.run_id,
+      query: r.query,
+      region: r.region,
+      collected: r.collected,
+      deduplicated: r.deduplicated,
+      rejected: r.rejected,
+      qualified: r.qualified,
+      createdAt: r.created_at,
+    }));
+  }
+
+  async countLeads(): Promise<number> {
+    const { rows } = await this.pool.query<{ count: string }>("SELECT count(*)::text AS count FROM leads_enriched");
+    return Number(rows[0]?.count ?? 0);
   }
 }

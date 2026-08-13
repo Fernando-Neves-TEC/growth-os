@@ -1,2 +1,2 @@
-# Runtime: somente stdlib para workers (design/simulação).
-# Dependências opcionais de provedores reais entram aqui quando autorizadas.
+# Runtime dos workers — persistência do pipeline de leads
+psycopg[binary]>=3.1
