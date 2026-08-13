@@ -95,14 +95,25 @@ Autenticação: `GROWTHOS_API_KEY` (header `X-Api-Key`). Em `GROWTHOS_MODE=appro
 - Workflow valida config antes de executar (`validationErrors` estruturados) e respeita kill-switch/suppression por lead.
 - Estado sobrevive a restart do servidor Temporal (persistência real em Postgres do lado da API).
 
-## 5. Conformidade (não negociável)
+## 5. Autenticação humana (S2) — operação
+
+- **Dois domínios:** operador humano (sessão) ≠ máquina (API key). O navegador **nunca** recebe a chave administrativa.
+- **Primeiro operador (CLI local):** `npm run admin:create --workspace=@growthos/api admin@clinica.local` (senha via prompt oculto ou `GROWTHOS_ADMIN_PASSWORD`; nunca imprime senha/hash; rejeita duplicado; não exposto por HTTP).
+- **Login:** `POST /auth/login {email, password}` → sessão em cookie `HttpOnly`/`SameSite=Lax`/`Secure`(approved) + `csrfToken`.
+- **Mutações autenticadas por sessão** exigem header `X-CSRF-Token` (403 se ausente/errado).
+- **Logout:** `POST /auth/logout` revoga a sessão (pós-logout tudo exige login).
+- **Sessão persistente** em Postgres: sobrevive a restart; expiração `GROWTHOS_SESSION_TTL_MS` (padrão 8h).
+- **Brute force:** o rate limit global cobre `/auth/login` (429; política via `GROWTHOS_RATE_LIMIT_*`).
+- **Auditoria de segurança (S10):** eventos estruturados persistidos em `security_audit_events`; consultar `GET /security/audit` (operador humano). Detecção local **IMPLEMENTED**; entrega de alerta externo **BLOCKED_EXTERNAL** (sem serviço conectado).
+
+## 6. Conformidade (não negociável)
 
 - `SuppressionList` (opt-out) é consultada **antes** de cada envio.
 - Opt-out processado com prioridade; nunca reenviar.
 - Sem dados sensíveis; minimização; auditoria por turno.
 - Envios só em janela comercial local; volume controlado por warm-up.
 
-## 6. Logs e observabilidade
+## 7. Logs e observabilidade
 
 - Logs estruturados (JSON) em `createLogger`; erros da API estruturados via `AllExceptionsFilter`.
 - Eventos de funil alimentam `funnelMetrics` → ARR projetado (parâmetros `ARR_*` em config).

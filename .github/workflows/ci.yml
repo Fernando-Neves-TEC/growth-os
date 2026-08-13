@@ -60,7 +60,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=@growthos/web
-      - run: npm test --workspace=@growthos/web # cliente do dashboard (H7)
+      - run: npm test --workspace=@growthos/web # cliente do dashboard (S2/sessão/CSRF)
+      # S2: prova que a credencial administrativa NUNCA chega ao bundle
+      - run: VITE_API_KEY=CANARY_SECRET_DO_NOT_SHIP_84721 npm run build --workspace=@growthos/web
+      - run: VITE_API_KEY=CANARY_SECRET_DO_NOT_SHIP_84721 npm run verify:bundle --workspace=@growthos/web
 
   python-workers:
     runs-on: ubuntu-latest

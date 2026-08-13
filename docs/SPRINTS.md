@@ -90,6 +90,35 @@ Backlog obrigatório da auditoria independente — cada item com reprodução, c
 ### Regressão final
 Build monorepo OK · **core 59/59 · API 62/62 · web 3/3 · Python 51/51** (com banco + referência TS) · migrations 001–009 idempotentes · Git limpo.
 
+## Checkpoint GAUNTLET SECURITY MAINTENANCE (2026-08-13) — S2 + S10 ✅ (CANDIDATE_DONE)
+Auditoria independente de segurança com dois achados, tratados sem propor alternativa à decisão arquitetural imutável.
+
+### S2 — CRÍTICO: `VITE_API_KEY` expunha a credencial administrativa no navegador
+- **Reprodução:** build com `VITE_API_KEY=CANARY_SECRET_DO_NOT_SHIP_84721` → canary presente em `apps/web/dist/assets/*.js` (**S2_REPRODUCED**).
+- **Causa:** o frontend carregava a API key administrativa via `import.meta.env.VITE_API_KEY` e enviava `X-Api-Key`.
+- **Decisão arquitetural imutável:** dois domínios — **operador humano** (login individual, sessão servidor-side, autorização) ≠ **máquina-a-máquina** (`X-Api-Key`/ApiKeyGuard). Nunca misturar.
+- **Implementação:**
+  - Identidade: tabela `operators` (email único, `password_hash` **argon2id**, role, active) — migration `010`.
+  - Sessão: tabela `sessions` (token_hash=sha256, csrf_token, expiração, revogação) — migration `011`; cookie `HttpOnly`/`SameSite=Lax`/`Secure`(approved); persistente (restart provado).
+  - Bootstrap: CLI local `npm run admin:create` (senha via prompt oculto; nunca imprime; rejeita duplicado; não exposto por HTTP).
+  - Endpoints: `POST /auth/login` · `GET /auth/me` · `POST /auth/logout` · CSRF por sessão em mutações.
+  - Autorização: `AuthGuard` global com matriz por rota (`@Public`/`@Human`/`@Shared`/`@M2M`; padrão `human` fail-closed). Chave M2M **não** concede acesso humano.
+  - Frontend: `VITE_API_KEY`/`setApiKey` **removidos**; fluxo login→dashboard→logout; `X-CSRF-Token` em mutações; `credentials: include`.
+  - Worker (M2M): envia `X-Api-Key` quando configurada.
+  - **Prova de bundle:** canary NÃO está no dist (script `scripts/check-bundle-secret.mjs` + passo no CI web).
+
+### S10 — MÉDIO: observabilidade de segurança
+- `SecurityAuditService` emite eventos estruturados (`AUTH_LOGIN_SUCCESS/FAILURE`, `AUTH_LOGOUT`, `AUTH_SESSION_INVALID`, `AUTHORIZATION_DENIED`, `RATE_LIMIT_HIT`) com metadados seguros (request_id, ip, path, user_agent, actor).
+- Persistência append-only em `security_audit_events` (migration `012`), gerada **somente pelo servidor**; consulta `GET /security/audit` (humano).
+- **Redação garantida por construção e testada** (nenhum valor de senha/API key/session/CSRF/connection string em evento).
+- `SECURITY EVENT DETECTION: IMPLEMENTED` · `EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL` (adapter `SecurityAuditSink` no-op preparado; sem serviço externo conectado).
+
+### Testes (S2+S10 + adversariais)
+Login (sucesso/inexistente/senha errada/inativo/vazio/email inválido) · sessão (me 401/200, cookie adulterado, logout, logout repetido, session fixation) · CSRF (403 sem token) · autorização (humana sem sessão 401; M2M em approved sem chave 401; chave não concede rota humana) · brute force login → 429 · RATE_LIMIT_HIT persistido · redação de eventos · persistência de sessão/auditoria em Postgres (restart).
+
+### Regressão
+Build monorepo OK · typecheck OK · **core 59/59 · API 86/86 · web 5/5 · Python 51/51** · migrations 001–012 idempotentes · smoke real (login→me→admin→logout→401) · restart (sessão sobrevive).
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.

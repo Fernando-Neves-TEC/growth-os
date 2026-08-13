@@ -34,17 +34,19 @@ Baseado nos documentos de estratégia e especificação:
   - **H3** 404 para recursos inexistentes (não 500) · **H4** validação HTTP estruturada (ZodValidationPipe).
   - **H5** kill-switch **durante a execução** (interrompe novos envios entre leads; prova real: 2/300 enviados, `paused:true`, resume manual + re-run idempotente).
   - **H6** rate limiting + payload limit + CORS por ambiente.
-  - **H7** dashboard funciona com API key (`X-Api-Key` via `VITE_API_KEY`/`setApiKey`).
+  - **GAUNTLET SECURITY MAINTENANCE (S2/S10):** autenticação **humana** (operadores + sessões servidor-side + cookie HttpOnly + CSRF) separada da credencial **M2M** (`X-Api-Key`); **`VITE_API_KEY` removido do frontend** (nunca mais a chave administrativa no bundle); auditoria de segurança estruturada (S10) persistida e consultável.
   - **Médios:** FK `leads_enriched→pipeline_runs` (migration 009), runner de migrations com lock/transação, conformidade TS/Python **cruzada real** (referência do core), CI com Postgres services (testes de integração nunca pulam silenciosamente), testes do cliente web.
-- **Provas reais:** restart com kill-switch/suppression duráveis · workflow Temporal via produto (campanha `49b0f2d8`: l0 supprimido = 0 eventos) · kill-switch em tempo real (2/300, resume + re-run 300 idempotente) · boot fail-closed em `approved` sem chave · 44 leads persistidos.
+- **Provas reais:** restart com kill-switch/suppression duráveis · workflow Temporal via produto (campanha `49b0f2d8`: l0 supprimido = 0 eventos) · kill-switch em tempo real (2/300, resume + re-run 300 idempotente) · boot fail-closed em `approved` sem chave · **S2**: canary de API key NÃO está no bundle · **S2**: login→sessão→ação administrativa→logout→401 · **S2**: sessão sobrevive a restart (Postgres) · **S10**: eventos de segurança persistidos e redigidos.
 
 ## Sprints
 Ver `docs/SPRINTS.md` para o mapeamento sprint → artefatos → status.
 
-## ⚠️ Modo de operação (contrato de modos)
-- **`simulation`/`design`** (local): auth opcional (aberta sem chave), CORS aberto em dev.
-- **`approved`** (produção): **fail-closed** — exige `GROWTHOS_API_KEY` (a API não inicia sem ela), exige a chave em todas as rotas, e CORS só com allowlist explícita (`GROWTHOS_CORS_ORIGINS`).
-Nenhum disparo real, coleta real ou agendamento real é executado sem autorização explícita. Provedores externos são **mock** e kill-switch é fail-closed.
+## ⚠️ Autenticação (dois domínios, nunca misturar)
+- **Humano** (dashboard/operador): `operators` (argon2id) + **sessão servidor-side** (cookie `HttpOnly`/`SameSite=Lax`, `Secure` em approved) + CSRF por sessão em mutações. Endpoints: `POST /auth/login` · `GET /auth/me` · `POST /auth/logout`.
+- **Máquina-a-máquina (M2M)**: `X-Api-Key` (ApiKeyGuard) — integrações (ex.: worker Temporal). Rotas `shared` aceitam sessão OU chave.
+- **Navegador**: **nunca** recebe a chave administrativa (`VITE_API_KEY` proibido e removido).
+- Primeiro operador via **CLI local** (não exposto por HTTP): `npm run admin:create --workspace=@growthos/api <email>`.
+- Matriz por rota: `public` (login/me/health) · `human` (admin do dashboard) · `shared` (worker) · `m2m` (chave). Padrão sem decorator = `human` (fail-closed).
 
 ## Subir o ambiente
 ```bash
@@ -52,18 +54,20 @@ docker compose up -d            # postgres+pgvector (5433), redis (6379), tempor
 cp .env.example .env
 npm install
 npm run build                   # compila core + api + worker + web
-npm run migrate --workspace=@growthos/api   # aplica migrations 001–009 (idempotentes, com lock)
-npm test                        # testes dos workspaces TS (core 59 + api 62 + web 3)
+npm run migrate --workspace=@growthos/api   # aplica migrations 001–012 (idempotentes, com lock)
+npm run admin:create --workspace=@growthos/api admin@clinica.local   # cria o primeiro operador (CLI local)
+npm test                        # testes dos workspaces TS (core 59 + api 86 + web 5)
 npm run dev --workspace=@growthos/api       # API em http://localhost:3000
-npm run dev --workspace=@growthos/web       # dashboard em http://localhost:5173
+npm run dev --workspace=@growthos/web       # dashboard em http://localhost:5173 (login humano)
 ```
 
 ## Endpoints principais
-`GET /status` · `GET/POST /suppression` (+`/:cnpj`) · `GET/POST /campaigns` (+`/:id`) · `POST /campaigns/:id/plan-day|simulate-turn|start` · `GET /channels/health|kill-switch` · `POST /channels/pause|resume` · `GET /metrics/funnel` · `POST /events` · `GET /leads` (+`/runs`).
-Autenticação por `GROWTHOS_API_KEY` (header `X-Api-Key`); **obrigatória** em `approved`.
+Auth: `POST /auth/login` · `GET /auth/me` · `POST /auth/logout` · `GET /security/audit` (humano).
+Produto: `GET /status` · `GET/POST /suppression` (+`/:cnpj`) · `GET/POST /campaigns` (+`/:id`) · `POST /campaigns/:id/plan-day|simulate-turn|start` · `GET /channels/health|kill-switch` · `POST /channels/pause|resume` · `GET /metrics/funnel` · `POST /events` · `GET /leads` (+`/runs`).
+Mutações com sessão exigem header `X-CSRF-Token`; integrações M2M usam `X-Api-Key` (obrigatória em `approved`).
 
 ## Variáveis de ambiente
-`GROWTHOS_MODE` (simulation|approved) · `GROWTHOS_DB_URL` (padrão `postgresql://growthos:growthos@localhost:5433/growthos`) · `GROWTHOS_API_KEY` · `GROWTHOS_BODY_LIMIT` (100kb) · `GROWTHOS_RATE_LIMIT_TTL_MS`/`GROWTHOS_RATE_LIMIT_MAX` (60000/1000) · `GROWTHOS_CORS_ORIGINS` · `ARR_SCHEDULE_RATE` (55) · `ARR_CLOSE_RATE` (20) · `ARR_TICKET_MONTHLY` (1500) · `TEMPORAL_ADDRESS` (localhost:7233) · `GROWTHOS_API_URL` (http://localhost:3000) · `GROWTHOS_DB_TEST_REQUIRED` (CI: falha se banco ausente).
+`GROWTHOS_MODE` (simulation|approved) · `GROWTHOS_DB_URL` (padrão `postgresql://growthos:growthos@localhost:5433/growthos`) · `GROWTHOS_API_KEY` (M2M; obrigatória em approved) · `GROWTHOS_SESSION_TTL_MS` (padrão 8h) · `GROWTHOS_ADMIN_EMAIL`/`GROWTHOS_ADMIN_PASSWORD` (CLI `admin:create`) · `GROWTHOS_BODY_LIMIT` (100kb) · `GROWTHOS_RATE_LIMIT_TTL_MS`/`GROWTHOS_RATE_LIMIT_MAX` (60000/1000) · `GROWTHOS_CORS_ORIGINS` · `ARR_SCHEDULE_RATE` (55) · `ARR_CLOSE_RATE` (20) · `ARR_TICKET_MONTHLY` (1500) · `TEMPORAL_ADDRESS` (localhost:7233) · `GROWTHOS_API_URL` (http://localhost:3000) · `GROWTHOS_DB_TEST_REQUIRED` (CI: falha se banco ausente).
 
 ## Documentação
 - `docs/ARCHITECTURE.md` — arquitetura final.

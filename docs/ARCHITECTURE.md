@@ -81,8 +81,21 @@ scripts/load-test.mjs   teste de carga simulado · scripts/health-reference.mjs 
 - **Contrato de modos (C2):** `approved` exige `GROWTHOS_API_KEY` no boot (`assertSafeBoot`) e no guard em todas as rotas — fail-closed. `simulation`/`design` permitem dev local sem chave.
 - `ApiKeyGuard` + `ThrottlerGuard` (rate limit env `GROWTHOS_RATE_LIMIT_*`, 429) + `AllExceptionsFilter` (erros estruturados; mapeia `FUNNEL_INVARIANT`→422 e payload→413) + `ZodValidationPipe` (validação estruturada H4) + `ParseUUIDPipe` (404 H3).
 - CORS por ambiente (`GROWTHOS_CORS_ORIGINS`; approved sem allowlist bloqueia) · payload limit (`GROWTHOS_BODY_LIMIT`).
-- Dashboard envia `X-Api-Key` (`VITE_API_KEY`/`setApiKey`) — funcional com auth ativa (H7).
 - Sanitização de texto via `s9/security` no core; sem credenciais reais no repositório (apenas `.env.example`).
+
+## Autenticação humana (S2) + auditoria de segurança (S10)
+- **Dois domínios distintos (nunca misturar):**
+  - **Operador humano**: `operators` (id, email único, `password_hash` **argon2id**, role, active) + **sessão servidor-side** (`sessions`: `token_hash`=sha256, `csrf_token`, expiração, revogação) em cookie `HttpOnly`/`SameSite=Lax`/`Secure` (approved). Endpoints `POST /auth/login`, `GET /auth/me`, `POST /auth/logout`.
+  - **Máquina-a-máquina**: `X-Api-Key` (ApiKeyGuard). O **navegador nunca** recebe a chave administrativa (`VITE_API_KEY` removido; prova automatizada no bundle).
+- **Primeiro operador** via CLI local (`npm run admin:create --workspace=@growthos/api <email>`), nunca por endpoint HTTP público.
+- **CSRF**: token por sessão (servidor-side) devolvido em login/me e exigido em mutações autenticadas por sessão (403 se ausente/errado; testado).
+- **Matriz de rotas** (decorators `@Public`/`@Human`/`@Shared`/`@M2M`; padrão `human` = fail-closed):
+  - `public`: `POST /auth/login`, `GET /auth/me`, `GET /channels/health`.
+  - `human` (sessão): `/status`, `/metrics/funnel`, `/campaigns*`, `/suppression` (list/add), `/leads*`, `/channels/pause|resume`, `/security/audit`.
+  - `shared` (sessão OU chave): `POST /events`, `GET /channels/kill-switch`, `GET /suppression/:cnpj`.
+- **Sessão persistente** em Postgres (sobrevive a restart — provado; contrato de expiração `GROWTHOS_SESSION_TTL_MS`, revogação por logout/desativação).
+- **S10 — auditoria de segurança**: `SecurityAuditService` emite eventos estruturados (`AUTH_LOGIN_SUCCESS/FAILURE`, `AUTH_LOGOUT`, `AUTH_SESSION_INVALID`, `AUTHORIZATION_DENIED`, `RATE_LIMIT_HIT`) com metadados seguros (request_id, ip, path, user_agent, actor), persistidos em `security_audit_events` (append-only, servidor) e consultáveis por `GET /security/audit` (humano). **Redação garantida por construção** (nunca senha/API key/session/CSRF/connection string) — testado. Sink externo previsto via `SecurityAuditSink` (adapter no-op).
+  - `SECURITY EVENT DETECTION: IMPLEMENTED` · `EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL`.
 
 ## Roadmap de evolução
 1. **Fase 1 (S0–S9):** domínio TS + workers Python + infra (GATE aprovado). ✅
