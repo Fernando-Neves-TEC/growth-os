@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { APP_FILTER, APP_GUARD } from "@nestjs/core";
+import { ThrottlerGuard, ThrottlerModule } from "@nestjs/throttler";
 import { CampaignsModule } from "./campaigns/campaigns.module.js";
 import { ConfigModule } from "./config/config.module.js";
 import { EventsModule } from "./events/events.module.js";
@@ -23,9 +24,22 @@ import { SuppressionModule } from "./suppression/suppression.module.js";
     EventsModule,
     LeadsModule,
     StatusModule,
+    // H6 — rate limiting configurável (por IP). approved usa limites reais; local usa default generoso.
+    ThrottlerModule.forRootAsync({
+      useFactory: () => ({
+        throttlers: [
+          {
+            name: "default",
+            ttl: Number(process.env.GROWTHOS_RATE_LIMIT_TTL_MS ?? 60000),
+            limit: Number(process.env.GROWTHOS_RATE_LIMIT_MAX ?? 1000),
+          },
+        ],
+      }),
+    }),
   ],
   providers: [
     { provide: APP_GUARD, useClass: ApiKeyGuard },
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
   ],
 })

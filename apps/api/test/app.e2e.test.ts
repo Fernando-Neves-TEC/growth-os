@@ -1,9 +1,11 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import { executeCampaignRun, type CampaignRunInput } from "@growthos/core";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
+import { configureApp } from "../src/app.setup.js";
 import { WORKFLOW_LAUNCHER } from "../src/campaigns/workflow-launcher.js";
 import { EventsService } from "../src/events/events.service.js";
 import {
@@ -48,6 +50,9 @@ describe("Growth OS API (e2e)", () => {
   beforeAll(async () => {
     // e2e hermético: substitui as stores Postgres por implementações em memória COMPARTILHADAS
     // (o sink atômico de eventos precisa alcançar os mesmos counters/suppression que Metrics/Status leem).
+    // H6: rate alto p/ não atrapalhar a suíte; body limit baixo p/ testar 413.
+    process.env.GROWTHOS_RATE_LIMIT_MAX = "100000";
+    process.env.GROWTHOS_BODY_LIMIT = "4kb";
     const counterStore = new MemoryCounterStore();
     const suppressionStore = new MemorySuppressionStore();
     const killSwitchStore = new MemoryKillSwitchStore();
@@ -82,7 +87,8 @@ describe("Growth OS API (e2e)", () => {
       .overrideProvider(WORKFLOW_LAUNCHER)
       .useValue(fakeLauncher)
       .compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication<NestExpressApplication>();
+    configureApp(app);
     await app.init();
     eventsService = moduleRef.get(EventsService);
   });
@@ -316,5 +322,13 @@ describe("Growth OS API (e2e)", () => {
 
   it("H4: validação estruturada — query inválida em /leads → 400", async () => {
     await request(app.getHttpServer()).get("/leads?limit=abc").expect(400);
+  });
+
+  it("H6: payload acima do limite de body → 413", async () => {
+    const big = "x".repeat(8 * 1024);
+    await request(app.getHttpServer())
+      .post("/events")
+      .send({ eventId: "big-1", type: "sent", cnpj: big })
+      .expect(413);
   });
 });

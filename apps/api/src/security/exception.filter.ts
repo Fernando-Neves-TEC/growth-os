@@ -11,17 +11,23 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
+    const asHttp = exception as { status?: number; statusCode?: number };
+    const is413 = typeof asHttp?.status === "number" && asHttp.status === 413;
     const status =
       exception instanceof HttpException
         ? exception.getStatus()
-        : exception instanceof FunnelInvariantError
-          ? HttpStatus.UNPROCESSABLE_ENTITY
-          : HttpStatus.INTERNAL_SERVER_ERROR;
+        : is413
+          ? HttpStatus.PAYLOAD_TOO_LARGE
+          : exception instanceof FunnelInvariantError
+            ? HttpStatus.UNPROCESSABLE_ENTITY
+            : HttpStatus.INTERNAL_SERVER_ERROR;
     const body = exception instanceof HttpException
       ? exception.getResponse()
-      : exception instanceof FunnelInvariantError
-        ? { message: exception.message, code: exception.code }
-        : { message: "erro interno" };
+      : is413
+        ? { message: "payload muito grande" }
+        : exception instanceof FunnelInvariantError
+          ? { message: exception.message, code: exception.code }
+          : { message: "erro interno" };
     const payload = typeof body === "object" && body !== null ? (body as object) : { message: body };
     res.status(status).json({ statusCode: status, ...payload, path: req.url });
   }
