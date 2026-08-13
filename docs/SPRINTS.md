@@ -57,6 +57,17 @@ Legenda: ✅ implementado · 🟡 parcial · ⬜ pendente
 - **Regressão:** build monorepo OK · core **42/42** · API **15/15** · Python **49/49**.
 - **Pendências F3 (próximos blocos):** ingestão real de eventos do funil; `planDay`/eventos idempotentes; ARR em configuração; contrato canônico TS/Python.
 
+## Checkpoint FASE 3 — Blocos A–F: motor completo (2026-08-13) ✅
+- **Bloco A (`fc0dd13`) — Eventos idempotentes + ARR em config:** `POST /events` com chave `eventId` (ON CONFLICT DO NOTHING), opt-out → suppression automática; `arrScheduleRate=55`/`arrCloseRate=20`/`arrTicketMonthly=1500` via config; `planDay` não muta contadores. Core 43/43 · API 22/22.
+- **Bloco B (`428ce64`) — Pipeline persistente:** `LeadRepository` (psycopg, `save_run` + `upsert_leads` com ON CONFLICT atualizando `pipeline_run_id`), migration `008_pipeline_runs`, API `GET /leads` e `/leads/runs`. **Prova real:** CLI persistiu 74 leads + run lidos via API. Python 50/50 · API 23/23.
+- **Bloco C (`366658b`) — Execução Temporal completa:** workflow `campaignRun` com suppression por lead, kill-switch, retries (1s·×2·5), eventos sent/delivered/read/replied; `GET /suppression/:cnpj`; clamp score≤100; mock `replied→read`. **Prova ao vivo:** 7 dispatched (lead-0 suppressido pulado), métricas 7/7/4/1, replyRate 25%, health 70.5. Python 50/50 · API 23/23 · core 44/44.
+- **Bloco D (`9d08d7e`) — Dashboard ampliado:** abas Dashboard/Builder/Leads & Suppression, loading/erro, ARR parametrizado; build Vite OK.
+- **Bloco E (`23086aa`) — Segurança:** `ApiKeyGuard` config-driven (`GROWTHOS_API_KEY`; prova 401 sem/errado, 200 com a chave), `AllExceptionsFilter` (erros estruturados), `GET /status` consolidado, validação de entrada. API 24/24.
+- **Bloco F (`b16fabd`) — Conformidade + CI:** `test_conformance_health.py` (matriz TS/Python do canal health), CI ampliado (jobs ts-apps e web). Python 51/51; typechecks e build web verdes.
+- **Regressão final (Bloco G):** build monorepo OK · core **44/44** · API **24/24** · Python **51/51** · typechecks verdes · smoke `GET /status` (health 70.5, suppressionCount 1, leads 44, contadores 7/7/4/1 persistidos após restart) · sem segredos no Git.
+- **Persistência comprovada:** kill-switch/suppression/campanhas/contadores/eventos/leads/runs duráveis em Postgres; restart real validado (Bloco 1).
+- **ITENS BLOCKED_EXTERNAL:** provedores reais (WhatsApp Business, e-mail, Cal.com, Maps, CNPJ) exigem credenciais reais e `GROWTHOS_MODE=approved` — **sem envios/coleta reais até autorização**; pipeline simulado + mocks entregues e testados.
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.

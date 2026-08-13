@@ -50,23 +50,38 @@ flowchart TB
 
 ## Repositório
 ```
-packages/core/          domínio TS (config, pilar2, pilar4, s9) — CommonJS
-workers/python/         workers: pilar1, pilar3, pilar4, simulation
-apps/api/               API NestJS (campaigns, health, metrics, suppression) + persistência PostgreSQL (pg)
-apps/temporal-worker/   worker Temporal + workflow campaignRun (atividades mock)
-apps/web/               dashboard React (builder + métricas + saúde)
-migrations/             SQL (pgvector) — runner: npm run migrate --workspace=@growthos/api
+packages/core/          domínio TS (config, pilar2, pilar4, s9, erros, logger) — CommonJS
+workers/python/         workers: pilar1, pilar3, pilar4, simulation, pipeline/repo (psycopg)
+apps/api/               API NestJS (campaigns, health, metrics, suppression, events, leads, status) + persistência PostgreSQL (pg)
+apps/temporal-worker/   worker Temporal + workflow campaignRun (activities: api + send mock)
+apps/web/               dashboard React/Vite (Dashboard, Builder, Leads & Suppression)
+migrations/             SQL 001–008 (pgvector) — runner: npm run migrate --workspace=@growthos/api
 scripts/load-test.mjs   teste de carga simulado
+.github/workflows/ci.yml  CI: ts-core · ts-apps · web · python-workers
 ```
 
-## Persistência (Fase 3, Bloco 1)
+## Persistência (Fase 3 — completa)
 - Postgres do Docker publicado em **`localhost:5433`** (evita conflito com Postgres local do Windows na 5432).
-- `DbModule` (pool `pg`) + `PersistenceModule` (stores: kill_switch_state, suppression, campaigns, funnel_counters).
-- Testes e2e são herméticos (stores em memória via override); integração real cobre persistência/restart.
-- Sem provedores externos reais: permanece **modo design/simulação** (`GROWTHOS_MODE=simulation`).
+- `DbModule` (pool `pg`) + `PersistenceModule` (global) com stores: **KillSwitchStore, SuppressionStore, CampaignStore, CounterStore, EventStore, LeadStore** (impls `pg` + em memória para testes).
+- **Migrations 001–008:** leads_raw, leads_enriched, kill_switch_state, suppression, campaigns, funnel_counters, events, pipeline_runs.
+- **Eventos idempotentes** (`POST /events`, chave `eventId` com `ON CONFLICT DO NOTHING`); opt-out (`optout`) alimenta suppression automaticamente.
+- **Pipeline persistente Python** (`LeadRepository` psycopg): `save_run` + `upsert_leads` (ON CONFLICT atualiza `pipeline_run_id`/`processed_at`) → rastreabilidade por run.
+- Testes e2e herméticos (stores em memória via override); integração real cobre persistência/restart (prova de restart real).
+- Sem provedores externos reais: permanece **modo design/simulação** (`GROWTHOS_MODE=simulation`); provedores reais exigem `GROWTHOS_MODE=approved` + credenciais.
+
+## Execução Temporal (Fase 3, Bloco C)
+- Workflow `campaignRun` (queue `growthos-campaign`): `validateWorkflow` (erros estruturados) → `getKillSwitch` (paused → return) → por lead: `isSuppressed` (skip) → `sendMessage` → `recordEvent` (sent/delivered/read/replied).
+- Activities via HTTP à API (kill-switch/suppression/eventos) + send mock (reply implica read).
+- Retries: `initialInterval 1s · backoff 2 · maxAttempts 5`; idempotência por `eventId wf-{campaignId}-{leadId}-{type}`.
+- Prova real: 7 dispatched (lead-0 suppressido pulado), métricas 7/7/4/1, replyRate 25%, health 70.5.
+
+## Segurança (Fase 3, Bloco E)
+- `ApiKeyGuard` config-driven via `GROWTHOS_API_KEY` (header `X-Api-Key`; 401 sem/errado, 200 com a chave) + `AllExceptionsFilter` (erros estruturados) + validação de entrada (zod no core + DTOs).
+- Sanitização de texto via `s9/security` no core; sem credenciais reais no repositório (apenas `.env.example`).
 
 ## Roadmap de evolução
-1. **Fase 2 (entregue):** API NestJS + worker Temporal (workflow executado no Temporal local) + dashboard React — integrados sobre o core validado.
-2. **Fase 3 (em andamento):** Bloco 1 — persistência durável (kill-switch/suppression/campanhas/contadores) entregue; próximos blocos: ingestão de eventos do funil, idempotência, ARR em config, contrato TS/Python.
-3. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com) — **somente** com `GROWTHOS_MODE=approved`.
-4. **Fase 4:** builder drag-and-drop completo + multi-tenant.
+1. **Fase 1 (S0–S9):** domínio TS + workers Python + infra (GATE aprovado). ✅
+2. **Fase 2:** API NestJS + worker Temporal (workflow real) + dashboard React. ✅
+3. **Fase 3 (Blocos 1 + A–F):** persistência durável, eventos idempotentes, pipeline persistente, execução Temporal com suppression/kill-switch/retries, dashboard ampliado, API key/erros estruturados, conformidade TS/Python + CI. ✅
+4. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com, Maps/CNPJ reais) — **somente** com `GROWTHOS_MODE=approved` e credenciais reais (atualmente **BLOCKED_EXTERNAL**).
+5. **Fase 4:** builder drag-and-drop completo + multi-tenant.
