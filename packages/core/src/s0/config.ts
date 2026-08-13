@@ -39,6 +39,9 @@ const envSchema = z.object({
   calendarProvider: z.string().default("mock"),
   calendarBusinessHoursStart: z.number().min(0).max(23).default(9),
   calendarBusinessHoursEnd: z.number().min(0).max(24).default(18),
+  arrScheduleRate: z.number().min(0).max(100).default(55),
+  arrCloseRate: z.number().min(0).max(100).default(20),
+  arrTicketMonthly: z.number().min(0).default(1500),
 });
 
 export type GrowthConfig = z.infer<typeof envSchema>;
@@ -69,6 +72,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): GrowthConfig {
     agentMaxSanityBlocks: int(env.AGENT_MAX_SANITY_BLOCKS, 2),
     healthChannelMin: float(env.HEALTH_CHANNEL_MIN, 60),
     healthRejectionRateMax: float(env.HEALTH_REJECTION_RATE_MAX, 5),
+    arrScheduleRate: float(env.ARR_SCHEDULE_RATE, 55),
+    arrCloseRate: float(env.ARR_CLOSE_RATE, 20),
+    arrTicketMonthly: float(env.ARR_TICKET_MONTHLY, 1500),
     calendarProvider: env.CALENDAR_PROVIDER ?? "mock",
     calendarBusinessHoursStart: int(env.CALENDAR_BUSINESS_HOURS_START, 9),
     calendarBusinessHoursEnd: int(env.CALENDAR_BUSINESS_HOURS_END, 18),

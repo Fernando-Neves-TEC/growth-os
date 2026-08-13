@@ -6,9 +6,11 @@ import { AppModule } from "../src/app.module.js";
 import {
   CAMPAIGN_STORE,
   COUNTER_STORE,
+  EVENT_STORE,
   KILL_SWITCH_STORE,
   MemoryCampaignStore,
   MemoryCounterStore,
+  MemoryEventStore,
   MemoryKillSwitchStore,
   MemorySuppressionStore,
   SUPPRESSION_STORE,
@@ -46,6 +48,8 @@ describe("Growth OS API (e2e)", () => {
       .useValue(new MemoryCampaignStore())
       .overrideProvider(COUNTER_STORE)
       .useValue(new MemoryCounterStore())
+      .overrideProvider(EVENT_STORE)
+      .useValue(new MemoryEventStore())
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
@@ -105,9 +109,10 @@ describe("Growth OS API (e2e)", () => {
     expect(res.body.actions[0].type).toBe("send");
   });
 
-  it("GET /channels/health reflete envio sem entrega como crítico", async () => {
+  it("GET /channels/health reflete envio sem entrega como crítico (via evento)", async () => {
+    await request(app.getHttpServer()).post("/events").send({ eventId: "e-crit-1", type: "sent" }).expect(201);
     const res = await request(app.getHttpServer()).get("/channels/health").expect(200);
-    // após plan-day: sent>0 e delivered=0 → canal crítico (autopausa)
+    // sent>0 e delivered=0 → canal crítico (autopausa)
     expect(res.body.killSwitch).toBe(true);
   });
 
@@ -121,9 +126,30 @@ describe("Growth OS API (e2e)", () => {
     await request(app.getHttpServer()).post("/channels/resume").expect(201);
   });
 
-  it("GET /metrics/funnel expõe ARR projetado", async () => {
+  it("GET /metrics/funnel expõe ARR projetado e parâmetros parametrizados", async () => {
     const res = await request(app.getHttpServer()).get("/metrics/funnel").expect(200);
     expect(typeof res.body.arr_projected).toBe("number");
+    expect(res.body.arr_params.scheduleRate).toBe(55);
+    expect(res.body.arr_params.ticketMonthly).toBe(1500);
+  });
+
+  it("POST /events é idempotente (eventId único)", async () => {
+    const body = { eventId: "evt-idem-1", type: "qualified" };
+    const r1 = await request(app.getHttpServer()).post("/events").send(body).expect(201);
+    expect(r1.body.duplicate).toBe(false);
+    const r2 = await request(app.getHttpServer()).post("/events").send(body).expect(201);
+    expect(r2.body.duplicate).toBe(true);
+    const m = await request(app.getHttpServer()).get("/metrics/funnel").expect(200);
+    expect(m.body.counters.qualified).toBe(1); // incrementado uma única vez
+  });
+
+  it("POST /events tipo optout adiciona à suppression", async () => {
+    await request(app.getHttpServer())
+      .post("/events")
+      .send({ eventId: "evt-opt-1", type: "optout", cnpj: "55555555000188" })
+      .expect(201);
+    const res = await request(app.getHttpServer()).get("/suppression").expect(200);
+    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "55555555000188")).toBe(true);
   });
 
   it("POST/GET /suppression registra e lista opt-out", async () => {

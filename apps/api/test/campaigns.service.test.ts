@@ -18,15 +18,13 @@ const okWorkflow = {
 
 describe("CampaignsService (unit)", () => {
   let campaigns: MemoryCampaignStore;
-  let counters: MemoryCounterStore;
   let killSwitch: MemoryKillSwitchStore;
   let service: CampaignsService;
 
   beforeEach(() => {
     campaigns = new MemoryCampaignStore();
-    counters = new MemoryCounterStore();
     killSwitch = new MemoryKillSwitchStore();
-    service = new CampaignsService(campaigns, counters, killSwitch, loadConfig({}));
+    service = new CampaignsService(campaigns, killSwitch, loadConfig({}));
   });
 
   it("cria campanha a partir de workflow válido", async () => {

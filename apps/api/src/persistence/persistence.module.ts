@@ -1,7 +1,7 @@
 import { Global, Module } from "@nestjs/common";
 import { DbModule } from "../db/db.module.js";
-import { PgCampaignStore, PgCounterStore, PgKillSwitchStore, PgSuppressionStore } from "./pg.stores.js";
-import { CAMPAIGN_STORE, COUNTER_STORE, KILL_SWITCH_STORE, SUPPRESSION_STORE } from "./stores.js";
+import { PgCampaignStore, PgCounterStore, PgEventStore, PgKillSwitchStore, PgSuppressionStore } from "./pg.stores.js";
+import { CAMPAIGN_STORE, COUNTER_STORE, EVENT_STORE, KILL_SWITCH_STORE, SUPPRESSION_STORE } from "./stores.js";
 
 /** Persistência durável (PostgreSQL). Em testes, os tokens são sobrescritos com impls em memória. */
 @Global()
@@ -12,7 +12,8 @@ import { CAMPAIGN_STORE, COUNTER_STORE, KILL_SWITCH_STORE, SUPPRESSION_STORE } f
     { provide: SUPPRESSION_STORE, useClass: PgSuppressionStore },
     { provide: CAMPAIGN_STORE, useClass: PgCampaignStore },
     { provide: COUNTER_STORE, useClass: PgCounterStore },
+    { provide: EVENT_STORE, useClass: PgEventStore },
   ],
-  exports: [KILL_SWITCH_STORE, SUPPRESSION_STORE, CAMPAIGN_STORE, COUNTER_STORE],
+  exports: [KILL_SWITCH_STORE, SUPPRESSION_STORE, CAMPAIGN_STORE, COUNTER_STORE, EVENT_STORE],
 })
 export class PersistenceModule {}

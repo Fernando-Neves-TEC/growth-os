@@ -96,9 +96,13 @@ export interface CounterState {
   health: HealthSample;
 }
 
+/** Tipos de evento do funil que incrementam contadores (opt-out é tratado à parte). */
+export type CounterEventType = "sent" | "delivered" | "read" | "replied" | "qualified" | "scheduled" | "closed";
+
 export interface CounterStore {
   get(): Promise<CounterState>;
   set(state: CounterState): Promise<void>;
+  increment(type: CounterEventType): Promise<void>;
 }
 
 export const COUNTER_STORE = Symbol("COUNTER_STORE");
@@ -114,5 +118,36 @@ export class MemoryCounterStore implements CounterStore {
   }
   async set(state: CounterState): Promise<void> {
     this.state = JSON.parse(JSON.stringify(state));
+  }
+  async increment(type: CounterEventType): Promise<void> {
+    this.state.counters[type] += 1;
+    if (type === "sent") this.state.health.sent += 1;
+  }
+}
+
+// ---------- Eventos (ingestão idempotente) ----------
+export type EventType = CounterEventType | "optout";
+
+export interface FunnelEvent {
+  eventId: string;
+  type: EventType;
+  cnpj?: string;
+  channel?: string;
+}
+
+export interface EventStore {
+  /** Registra o evento de forma idempotente (eventId único). Retorna duplicate=true se já processado. */
+  apply(event: FunnelEvent): Promise<{ duplicate: boolean }>;
+}
+
+export const EVENT_STORE = Symbol("EVENT_STORE");
+
+@Injectable()
+export class MemoryEventStore implements EventStore {
+  private readonly seen = new Set<string>();
+  async apply(event: FunnelEvent): Promise<{ duplicate: boolean }> {
+    if (this.seen.has(event.eventId)) return { duplicate: true };
+    this.seen.add(event.eventId);
+    return { duplicate: false };
   }
 }

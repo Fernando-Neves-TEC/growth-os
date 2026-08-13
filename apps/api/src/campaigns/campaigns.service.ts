@@ -19,11 +19,9 @@ import {
 import { GROWTH_CONFIG } from "../config/config.module.js";
 import {
   CAMPAIGN_STORE,
-  COUNTER_STORE,
   KILL_SWITCH_STORE,
   type CampaignRecord,
   type CampaignStore,
-  type CounterStore,
   type KillSwitchStore,
 } from "../persistence/stores.js";
 
@@ -47,7 +45,6 @@ export interface SimulateTurnInput {
 export class CampaignsService {
   constructor(
     @Inject(CAMPAIGN_STORE) private readonly campaigns: CampaignStore,
-    @Inject(COUNTER_STORE) private readonly counters: CounterStore,
     @Inject(KILL_SWITCH_STORE) private readonly killSwitch: KillSwitchStore,
     @Inject(GROWTH_CONFIG) private readonly cfg: GrowthConfig,
   ) {}
@@ -97,10 +94,7 @@ export class CampaignsService {
     };
     const dayIndex = input.dayIndex ?? 0;
     const plan = new Sequencer(policy).planDay(input.leads, dayIndex, new Date());
-    const state = await this.counters.get();
-    state.counters.sent += plan.sends.length;
-    state.health.sent += plan.sends.length;
-    await this.counters.set(state);
+    // Nota: planDay NÃO muta contadores — envios reais são contabilizados via POST /events (idempotente).
     return { dayIndex, plan };
   }
 

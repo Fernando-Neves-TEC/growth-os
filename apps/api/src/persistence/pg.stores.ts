@@ -5,8 +5,11 @@ import { PG_POOL } from "../db/db.module.js";
 import type {
   CampaignRecord,
   CampaignStore,
+  CounterEventType,
   CounterState,
   CounterStore,
+  EventStore,
+  FunnelEvent,
   HealthSample,
   KillSwitchState,
   KillSwitchStore,
@@ -89,6 +92,16 @@ export class PgCampaignStore implements CampaignStore {
 
 @Injectable()
 export class PgCounterStore implements CounterStore {
+  private readonly col: Record<CounterEventType, string> = {
+    sent: "sent",
+    delivered: "delivered",
+    read: "read",
+    replied: "replied",
+    qualified: "qualified",
+    scheduled: "scheduled",
+    closed: "closed",
+  };
+
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   async get(): Promise<CounterState> {
@@ -119,8 +132,9 @@ export class PgCounterStore implements CounterStore {
       delivered: counters.delivered,
       sent: counters.sent,
       rejected: counters.rejected,
-      readRate: Number(r?.read_rate ?? 0),
-      replyRate: Number(r?.reply_rate ?? 0),
+      // Taxas derivadas dos contadores (fonte única de verdade)
+      readRate: counters.delivered > 0 ? (counters.read / counters.delivered) * 100 : 0,
+      replyRate: counters.read > 0 ? (counters.replied / counters.read) * 100 : 0,
     };
     return { counters, health };
   }
@@ -135,5 +149,23 @@ export class PgCounterStore implements CounterStore {
        WHERE id = 1`,
       [c.sent, c.delivered, c.read, c.replied, c.qualified, c.scheduled, c.closed, c.rejected, h.readRate, h.replyRate],
     );
+  }
+
+  async increment(type: CounterEventType): Promise<void> {
+    const col = this.col[type];
+    await this.pool.query(`UPDATE funnel_counters SET ${col} = ${col} + 1, updated_at = now() WHERE id = 1`);
+  }
+}
+
+@Injectable()
+export class PgEventStore implements EventStore {
+  constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
+
+  async apply(event: FunnelEvent): Promise<{ duplicate: boolean }> {
+    const { rowCount } = await this.pool.query(
+      "INSERT INTO events (event_id, type, cnpj, channel) VALUES ($1, $2, $3, $4) ON CONFLICT (event_id) DO NOTHING",
+      [event.eventId, event.type, event.cnpj ?? null, event.channel ?? null],
+    );
+    return { duplicate: (rowCount ?? 0) === 0 };
   }
 }

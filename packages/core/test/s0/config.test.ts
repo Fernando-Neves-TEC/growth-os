@@ -30,4 +30,11 @@ describe("loadConfig (S0 — fail-closed)", () => {
     const cfg = loadConfig({ ICP_CNAE_ALLOWLIST: "6911701, 8610101" });
     expect(cfg.icpCnaeAllowlist).toEqual(["6911701", "8610101"]);
   });
+
+  it("parametriza ARR com padrões seguros", () => {
+    const cfg = loadConfig({});
+    expect(cfg.arrScheduleRate).toBe(55);
+    expect(cfg.arrCloseRate).toBe(20);
+    expect(cfg.arrTicketMonthly).toBe(1500);
+  });
 });
