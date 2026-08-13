@@ -1,8 +1,10 @@
 /** S2 — prova automatizada de que a credencial administrativa NÃO está no bundle do frontend.
  *  Uso (após build com canary): VITE_API_KEY=CANARY... node scripts/check-bundle-secret.mjs
- *  Sai com código != 0 se a canary aparecer em qualquer artefato de apps/web/dist. */
+ *  Sai com código != 0 se a canary aparecer em qualquer artefato de apps/web/dist.
+ *  O caminho do dist é resolvido relativo ao script (funciona com npm workspace, qualquer cwd). */
 import { readdir, readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 const canary = process.env.VITE_API_KEY;
 if (!canary) {
@@ -10,7 +12,8 @@ if (!canary) {
   process.exit(2);
 }
 
-const dist = resolve(process.cwd(), "apps/web/dist");
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const dist = resolve(repoRoot, "apps/web/dist");
 let found = false;
 
 async function walk(dir) {

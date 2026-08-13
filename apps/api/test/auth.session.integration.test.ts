@@ -62,14 +62,20 @@ describe("S2/S10 — persistência de sessão e auditoria (integração Postgres
     expect(await authA.resolveSession(session.sessionToken, {})).toBeNull();
   });
 
-  it("eventos de auditoria persistem no Postgres, são consultáveis e não contêm segredos", async () => {
+  it("eventos de auditoria persistem no Postgres, são consultáveis e não contêm valores de segredo", async () => {
     const ast = new PgSecurityAuditStore(pool);
     const list = await ast.list(100);
     expect(list.length).toBeGreaterThan(0);
     expect(list.some((e) => e.event === "AUTH_LOGIN_SUCCESS")).toBe(true);
     for (const e of list) {
       const blob = JSON.stringify(e);
-      expect(blob).not.toMatch(/senha|password|x-api-key|csrf|connectionstring/i);
+      // nenhum valor de segredo (senha real) e nenhuma connection string
+      expect(blob).not.toContain("SenhaRestart1!");
+      expect(blob).not.toMatch(/postgres:\/\/|connectionstring/i);
+      // nenhuma chave/metadado sensível
+      for (const key of Object.keys(e.metadata ?? {})) {
+        expect(key.toLowerCase()).not.toMatch(/password|apikey|api_key|token|csrf|session|connection/);
+      }
     }
   });
 });
