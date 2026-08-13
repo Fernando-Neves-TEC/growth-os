@@ -1,5 +1,6 @@
 /** Endpoints de autenticação humana (S2) — sessão servidor-side em cookie HttpOnly. */
 import { Body, Controller, Get, Inject, Post, Req, Res, UnauthorizedException } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import { z } from "zod";
@@ -25,7 +26,10 @@ function reqContext(req: Request): { requestId: string; ip: string | null; path:
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService) {}
 
+  // GAUNTLET SECURITY CLOSURE — limite ESPECÍFICO p/ login (5/min por IP), independente do global,
+  // usando o mecanismo oficial @nestjs/throttler (não há contador próprio).
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post("login")
   async login(@Req() req: Request, @Res({ passthrough: true }) res: Response, @Body(zodBody(LoginSchema)) body: z.infer<typeof LoginSchema>) {
     const session = await this.auth.login({ email: body.email, password: body.password }, reqContext(req));

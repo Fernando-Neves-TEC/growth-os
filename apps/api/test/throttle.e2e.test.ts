@@ -79,25 +79,6 @@ describe("Rate limiting — rota pública (H6/S10)", () => {
     }
   });
 });
-
-describe("Rate limiting — brute force no login (S2)", () => {
-  let app: INestApplication;
-
-  beforeAll(async () => {
-    app = await buildThrottledApp(new MemorySecurityAuditStore());
-  });
-
-  afterAll(async () => {
-    delete process.env.GROWTHOS_RATE_LIMIT_MAX;
-    delete process.env.GROWTHOS_RATE_LIMIT_TTL_MS;
-    await app.close();
-  });
-
-  it("4ª tentativa de login → 429 (rate limit cobre /auth/login)", async () => {
-    for (let i = 0; i < 3; i++) {
-      await request(app.getHttpServer()).post("/auth/login").send({ email: "nao-existe@test.local", password: "SenhaErrada1" }).expect(401);
-    }
-    const res = await request(app.getHttpServer()).post("/auth/login").send({ email: "nao-existe@test.local", password: "SenhaErrada1" }).expect(429);
-    expect(res.body.statusCode).toBe(429);
-  });
-});
+// NOTE (GAUNTLET SECURITY CLOSURE): o brute force no /auth/login agora tem limite ESPECÍFICO
+// (5/min via @Throttle no controller) e é coberto por login-rate.e2e.test.ts sob configuração
+// padrão — não depende mais do limite global (GROWTHOS_RATE_LIMIT_MAX).
