@@ -1,10 +1,20 @@
 /** Cliente HTTP da API Growth OS. */
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
+// H7 — autenticação ativa não pode quebrar o dashboard:
+// VITE_API_KEY (build) ou setApiKey() (runtime) injetam o header X-Api-Key em todas as requisições.
+let apiKey = (import.meta.env.VITE_API_KEY ?? "") as string;
+
+export function setApiKey(key: string): void {
+  apiKey = key;
+}
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["X-Api-Key"] = apiKey;
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
