@@ -20,6 +20,23 @@ jobs:
 
   ts-apps:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: growthos
+          POSTGRES_PASSWORD: growthos
+          POSTGRES_DB: growthos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U growthos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://growthos:growthos@localhost:5432/growthos
+      GROWTHOS_DB_TEST_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,7 +46,9 @@ jobs:
       - run: npm ci
       - run: npm run build --workspace=@growthos/api
       - run: npm run build --workspace=@growthos/temporal-worker
-      - run: npm test --workspace=@growthos/api # e2e herméticos; integração DB pula sem banco
+      - run: npm run migrate --workspace=@growthos/api
+      # testes de integração PostgreSQL RODAM (nunca pulam silenciosamente: GROWTHOS_DB_TEST_REQUIRED=1)
+      - run: npm test --workspace=@growthos/api
 
   web:
     runs-on: ubuntu-latest
@@ -41,14 +60,43 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build --workspace=@growthos/web
+      - run: npm test --workspace=@growthos/web # cliente do dashboard (H7)
 
   python-workers:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: growthos
+          POSTGRES_PASSWORD: growthos
+          POSTGRES_DB: growthos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U growthos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://growthos:growthos@localhost:5432/growthos
+      GROWTHOS_DB_URL: postgresql://growthos:growthos@localhost:5432/growthos
+      GROWTHOS_DB_TEST_REQUIRED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build --workspace=@growthos/core
+      - run: npm run build --workspace=@growthos/api
+      - run: npm run migrate --workspace=@growthos/api
+      # referência REAL do TS para a validação cruzada da conformidade
+      - run: node scripts/health-reference.mjs > /tmp/ts-ref.json
       - run: pip install -r workers/python/requirements-dev.txt
-      - run: python -m pytest workers/python/tests -q
+      - run: GROWTHOS_TS_REF_FILE=/tmp/ts-ref.json python -m pytest workers/python/tests -q
 

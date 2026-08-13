@@ -21,7 +21,12 @@ def _db_ok() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(not _db_ok(), reason="Postgres indisponível (integração ignorada)")
+# Sem banco: pula em dev local, mas FALHA no CI (GROWTHOS_DB_TEST_REQUIRED=1) —
+# teste pulado silenciosamente não conta como gate verde.
+pytestmark = pytest.mark.skipif(
+    not _db_ok() and os.environ.get("GROWTHOS_DB_TEST_REQUIRED") != "1",
+    reason="Postgres indisponível (integração ignorada em dev local)",
+)
 
 
 def test_persist_pipeline_grava_run_e_leads():
