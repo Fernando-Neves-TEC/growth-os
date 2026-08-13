@@ -80,7 +80,7 @@ Autenticação: `GROWTHOS_API_KEY` (header `X-Api-Key`). Em `GROWTHOS_MODE=appro
 - Payload: `GROWTHOS_BODY_LIMIT` (padrão `100kb`; excedido → 413).
 - Rate limit por IP: `GROWTHOS_RATE_LIMIT_TTL_MS`/`GROWTHOS_RATE_LIMIT_MAX` (padrão `60000`/`1000`; excedido → 429).
 - **Login:** limite ESPECÍFICO `POST /auth/login` = **5/min por IP** (independente do global; 5ª→401, **6ª→429**; evento `RATE_LIMIT_HIT` persistido; sem bypass por `X-Forwarded-For`).
-- CORS: `GROWTHOS_CORS_ORIGINS` (allowlist; tem precedência). Em `approved` sem allowlist, origens externas são **bloqueadas** (fail-closed). Em `simulation`, apenas origens LOCAIS do dashboard (`localhost:5173`/`127.0.0.1:5173`) são autorizadas — origem arbitrária **não** é refletida.
+- CORS: `GROWTHOS_CORS_ORIGINS` (allowlist; tem precedência). Em `approved` sem allowlist, origens externas são **bloqueadas** (fail-closed). Em `simulation`, apenas origens LOCAIS do dashboard (`localhost:5173`/`127.0.0.1:5173`) são autorizadas — origem arbitrária **não** é refletida. **Nota (F-03):** a lib `cors` emite `Access-Control-Allow-Credentials: true` sempre que `credentials:true` está ligado, inclusive para origem não autorizada (sem `ACAO`) — benigno (o browser bloqueia na ausência de ACAO; verificado não-explorável); mantido sem workaround frágil.
 
 ## 4.1 Kill-switch (emergência, inclusive durante execução)
 
@@ -107,6 +107,18 @@ Autenticação: `GROWTHOS_API_KEY` (header `X-Api-Key`). Em `GROWTHOS_MODE=appro
 - **Brute force:** limite ESPECÍFICO de login (5/min por IP) — 401 nas 5 primeiras tentativas erradas, **429 na 6ª**; evento `RATE_LIMIT_HIT` persistido (sem segredos).
 - **Revoke-all (troca de senha/vazamento):** `npm run admin:revoke-sessions --workspace=@growthos/api <email>` revoga TODAS as sessões ativas do operador (sem endpoint HTTP; registra `AUTH_LOGOUT`/`reason=revoke_all`).
 - **Auditoria (S10):** eventos persistidos em `security_audit_events` (FK `actor_operator_id` `ON DELETE SET NULL` — histórico sobrevive à remoção do operador); consultar `GET /security/audit` (operador humano). Detecção local **IMPLEMENTED**; entrega de alerta externo **BLOCKED_EXTERNAL** (sem serviço conectado).
+
+## 5.1 Hardening final (SECURITY HARDENING FINAL — fechamento de resíduos)
+- **Login — equalização de timing (F-01):** usuário inexistente executa um verify Argon2id dummy (hash em memória, senha aleatória nunca persistida/logada) — custo aproximado ao de "senha errada" em usuário existente. Provado: média ~70ms (existente) vs ~63ms (inexistente); diferença caiu de ~48ms para ~7ms (ruído). **NÃO é constant-time rigoroso; é equalização de timing.**
+- **API key — comparação timing-safe (F-07):** `crypto.timingSafeEqual` (comprimentos diferentes → falha segura). Provado: ausente/errada/comprimento diferente → 401; correta → 200.
+- **Email — teto 254 (F-02):** `max(254)` no schema de login; >254 → 400 ANTES do AuthService/auditoria.
+- **Health público sanitizado (F-09):** `/channels/health` (público) NÃO expõe `killSwitch` (só score/status/rejectionRate/reasons); estado administrativo permanece em `GET /channels/kill-switch` (shared).
+- **Resposta 429 genérica (F-11):** cliente recebe `{"message":"muitas requisições"}` — sem `ThrottlerException`.
+- **X-Powered-By desabilitado (F-14).**
+- **RBAC (F-10):** NÃO implementado além de `admin` único — `CHECK (role = 'admin')` (migration 014) + validação no `AuthService.createOperator`. Toda autenticação humana atual é admin.
+- **Auditoria append-only (F-12):** somente na camada de aplicação (sem trigger de banco; nenhum endpoint HTTP grava/edita/remove auditoria).
+- **Topologia / rate limit (F-04/F-05):** `CURRENT: single-instance direct · trust proxy disabled · in-memory throttle acceptable`. `BEFORE PROXY/LB: configurar ranges/hops de proxy confiáveis conscientemente, validar req.ip e usar storage de throttler compartilhado`. `BEFORE MULTI-INSTANCE: storage de rate limit compartilhado obrigatório`. **(NÃO se declara MULTI_INSTANCE_SAFE.)**
+- **Dependências (S28):** `npm audit` runtime: 0 CRITICAL, 2 HIGH (`multer`/`@nestjs/platform-express`) **NÃO alcançáveis** (sem endpoints multipart/upload; body JSON-only) e correção exige **major upgrade do Nest** → **BLOCKED_DECISION** (sem upgrade arbitrário). Dev: `vitest` (CRITICAL) e `vite` (HIGH) — ferramentas de dev, não embarcadas.
 
 ## 6. Conformidade (não negociável)
 

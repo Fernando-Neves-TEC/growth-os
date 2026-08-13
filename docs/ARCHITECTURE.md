@@ -98,6 +98,17 @@ scripts/load-test.mjs   teste de carga simulado · scripts/health-reference.mjs 
 - **S10 — auditoria de segurança**: `SecurityAuditService` emite eventos estruturados (`AUTH_LOGIN_SUCCESS/FAILURE`, `AUTH_LOGOUT`, `AUTH_SESSION_INVALID`, `AUTHORIZATION_DENIED`, `RATE_LIMIT_HIT`) com metadados seguros (request_id, ip, path, user_agent, actor), persistidos em `security_audit_events` (append-only, servidor) e consultáveis por `GET /security/audit` (humano). Migration `013` adiciona FK `actor_operator_id → operators(id) ON DELETE SET NULL` — **histórico de auditoria sobrevive à remoção do operador** (prova real). **Redação garantida por construção** (nunca senha/API key/session/CSRF/connection string) — testado. Sink externo previsto via `SecurityAuditSink` (adapter no-op).
   - `SECURITY EVENT DETECTION: IMPLEMENTED` · `EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL`.
 
+## Hardening final (SECURITY HARDENING FINAL — fechamento de resíduos da auditoria)
+- **F-01 timing equalization (login):** usuário inexistente executa verify Argon2id dummy (em memória; senha aleatória nunca persistida/logada) — custo ≈ senha errada. NÃO é constant-time rigoroso. Provado (redução da diferença ~48ms → ~7ms).
+- **F-07 API key timing-safe:** `crypto.timingSafeEqual` (comprimento diferente → falha segura). Provado 401/200/401/401.
+- **F-02 email max 254:** Zod `.max(254)`; >254 → 400 antes do AuthService/auditoria.
+- **F-09 health público sanitizado:** `/channels/health` público sem `killSwitch` (projeção `publicStatus`); `/channels/kill-switch` segue shared. Web `Health` type atualizado.
+- **F-11/F-14:** 429 com mensagem genérica (sem classe interna) · `X-Powered-By` desabilitado.
+- **F-10 RBAC:** somente `admin` — migration `014` (`CHECK (role='admin')`) + validação em `createOperator`. Não há RBAC além de admin único nesta fase.
+- **F-03 CORS:** ACAC emitido sem ACAO é comportamento da lib `cors` (benigno, não-explorável) — documentado, sem workaround.
+- **F-04/F-05 topologia:** single-instance direct, trust proxy disabled, throttle in-memory aceitável. **Gates obrigatórios antes de proxy/LB e de multi-instance** (storage compartilhado + proxy confiável). **NÃO** se declara MULTI_INSTANCE_SAFE.
+- **S28 dependências:** runtime 0 CRITICAL / 2 HIGH não alcançáveis (multer) → correção = major upgrade (BLOCKED_DECISION). Dev: vitest (CRITICAL)/vite (HIGH) — não embarcados.
+
 ## Roadmap de evolução
 1. **Fase 1 (S0–S9):** domínio TS + workers Python + infra (GATE aprovado). ✅
 2. **Fase 2:** API NestJS + worker Temporal (workflow real) + dashboard React. ✅

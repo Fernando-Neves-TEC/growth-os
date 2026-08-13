@@ -143,6 +143,40 @@ Build monorepo OK · typecheck OK · **core 59/59 · API 86/86 · web 5/5 · Pyt
 Build OK · typecheck OK · **core 59/59 · API 96/96 (12 files) · web 5/5 · Python 51/51** · migrations 001–013 idempotentes · smoke real completo (throttle 429 + `RATE_LIMIT_HIT` + CORS fail-closed + login→me→CSRF→logout→401 + revoke-all CLI→401).
 `EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL` mantido (sem serviço externo conectado). Verdict **CANDIDATE_DONE** (DONE reservado ao auditor independente).
 
+## SECURITY HARDENING FINAL — fechamento dos resíduos antes do Final Verifier
+
+### F-01 — Timing oracle no login (BAIXO → equalizado)
+- **Antes:** inexistente ~12ms vs senha errada ~60ms (oráculo por tempo). **Depois:** verify Argon2id dummy (hash em memória, senha aleatória) para inexistente. Provado ao vivo (3 rodadas, janela limpa): média **70ms existente vs 63ms inexistente** (diferença ~7ms = ruído). Não é constant-time; é **equalização de timing**. Rate limit 5/min intacto (429s observados).
+
+### F-07 — Comparação de API key timing-safe
+- `crypto.timingSafeEqual` + falha segura em comprimento diferente. Provado: ausente 401 · correta 200 · errada 401 · comprimento diferente 401.
+
+### F-02 — Email sem teto (audit metadata)
+- `z.string().email().max(254)`. Provado: válido ≤254 → fluxo; >254 → 400; 5000 → 400; rejeitado NUNCA chega ao AuthService/auditoria.
+
+### F-09 — Kill-switch no health público
+- `/channels/health` público passa a expor **só saúde operacional** (projeção `publicStatus` — score/status/rejectionRate/reasons); `GET /channels/kill-switch` (shared) mantém o estado administrativo. Web `Health` type atualizado; testes e2e atualizados.
+
+### F-11/F-14 — Higiene de resposta
+- 429 → `{"message":"muitas requisições"}` (sem `ThrottlerException` no cliente) · `X-Powered-By` desabilitado. Provado ao vivo.
+
+### F-03 — CORS ACAC sem ACAO
+- Comportamento da lib `cors` (benigno; browser bloqueia sem ACAO). Verificado não-explorável → **documentado**, sem workaround frágil.
+
+### F-10 — RBAC
+- Não há RBAC além de `admin` único. Migration `014` (`CHECK (role='admin')`) + validação no `createOperator`. Documentado como fase atual.
+
+### S28 — Dependency audit
+- `npm audit` runtime: **0 CRITICAL, 2 HIGH** (`multer`/`@nestjs/platform-express`) — **não alcançáveis** (zero endpoints multipart; body JSON-only) e correção = major upgrade Nest → **BLOCKED_DECISION** (sem upgrade arbitrário). Dev: vitest (CRITICAL), vite (HIGH) — não embarcados.
+
+### Topologia / trust proxy / multi-instance (F-04/F-05)
+- `CURRENT: single-instance direct · trust proxy disabled · in-memory throttle acceptable`.
+- `BEFORE PROXY/LB: proxy confiável (ranges/hops) + validar req.ip + storage compartilhado`.
+- `BEFORE MULTI-INSTANCE: storage de rate limit compartilhado obrigatório`. **NÃO se declara MULTI_INSTANCE_SAFE.**
+
+### Testes e regressão
+- Novo `hardening.e2e.test.ts` (9 testes) + `app.e2e` atualizado (health sem killSwitch). Suíte API **105/105** · core 59/59 · web 5/5 · Python 51/51 · migrations 001–014 · bundle proof · secret scan · `git diff --check` limpo. `EXTERNAL ALERT DELIVERY: BLOCKED_EXTERNAL` mantido. Verdict **CANDIDATE_DONE** (DONE reservado ao Final Verifier).
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.
