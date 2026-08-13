@@ -331,4 +331,9 @@ describe("Growth OS API (e2e)", () => {
       .send({ eventId: "big-1", type: "sent", cnpj: big })
       .expect(413);
   });
+
+  it("CORS em simulação reflete a origem (dev local)", async () => {
+    const res = await request(app.getHttpServer()).get("/status").set("Origin", "http://localhost:5173").expect(200);
+    expect(res.headers["access-control-allow-origin"]).toBe("http://localhost:5173");
+  });
 });

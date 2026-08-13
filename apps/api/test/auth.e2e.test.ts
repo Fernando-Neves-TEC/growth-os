@@ -1,9 +1,11 @@
 /** Autenticação fail-closed (C2) — modo approved exige API key em todas as rotas. */
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
+import { configureApp } from "../src/app.setup.js";
 import { WORKFLOW_LAUNCHER } from "../src/campaigns/workflow-launcher.js";
 import {
   CAMPAIGN_STORE,
@@ -46,7 +48,8 @@ describe("Autenticação fail-closed (C2, modo approved)", () => {
       .overrideProvider(WORKFLOW_LAUNCHER)
       .useValue({ launch: async () => ({ workflowId: "fake" }) })
       .compile();
-    app = moduleRef.createNestApplication();
+    app = moduleRef.createNestApplication<NestExpressApplication>();
+    configureApp(app); // approved sem GROWTHOS_CORS_ORIGINS → CORS fail-closed
     await app.init();
   });
 
@@ -73,5 +76,10 @@ describe("Autenticação fail-closed (C2, modo approved)", () => {
 
   it("escrita também exige a chave (eventos)", async () => {
     await request(app.getHttpServer()).post("/events").send({ eventId: "a1", type: "sent" }).expect(401);
+  });
+
+  it("CORS em approved sem allowlist não autoriza origem externa (fail-closed)", async () => {
+    const res = await request(app.getHttpServer()).get("/status").set("x-api-key", KEY).set("Origin", "http://evil.example").expect(200);
+    expect(res.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });
