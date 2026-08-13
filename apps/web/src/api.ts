@@ -1,19 +1,24 @@
-/** Cliente HTTP da API Growth OS. */
+/** Cliente HTTP da API Growth OS (S2).
+ *  - NUNCA carrega a API key administrativa no navegador (sem VITE_API_KEY).
+ *  - Autenticação humana via sessão (cookie HttpOnly) com credentials: "include".
+ *  - CSRF: token por sessão obtido em login//auth/me; enviado em mutações. */
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
 
-// H7 — autenticação ativa não pode quebrar o dashboard:
-// VITE_API_KEY (build) ou setApiKey() (runtime) injetam o header X-Api-Key em todas as requisições.
-let apiKey = (import.meta.env.VITE_API_KEY ?? "") as string;
+let csrfToken = "";
 
-export function setApiKey(key: string): void {
-  apiKey = key;
+export function setCsrfToken(token: string): void {
+  csrfToken = token;
 }
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (apiKey) headers["X-Api-Key"] = apiKey;
+  const method = (init?.method ?? "GET").toUpperCase();
+  if (csrfToken && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
   const res = await fetch(`${BASE}${path}`, {
     ...init,
+    credentials: "include",
     headers: { ...headers, ...(init?.headers as Record<string, string> | undefined) },
   });
   if (!res.ok) {
@@ -21,6 +26,18 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(JSON.stringify(body));
   }
   return res.json() as Promise<T>;
+}
+
+export interface Operator {
+  id: string;
+  email: string;
+  role: string;
+}
+
+export interface AuthPayload {
+  operator: Operator;
+  csrfToken: string;
+  expiresAt: string;
 }
 
 export interface Health {
@@ -78,6 +95,18 @@ export interface EventResult {
 }
 
 export const api = {
+  auth: {
+    login: (email: string, password: string) =>
+      req<AuthPayload>("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
+    me: async (): Promise<AuthPayload | null> => {
+      try {
+        return await req<AuthPayload>("/auth/me");
+      } catch {
+        return null;
+      }
+    },
+    logout: () => req("/auth/logout", { method: "POST" }),
+  },
   health: () => req<Health>("/channels/health"),
   killSwitch: () => req<{ paused: boolean; reason: string | null }>("/channels/kill-switch"),
   pause: () => req("/channels/pause", { method: "POST", body: JSON.stringify({ reason: "manual" }) }),

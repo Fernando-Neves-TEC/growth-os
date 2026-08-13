@@ -1,5 +1,6 @@
 import { Body, Controller, Inject, Post } from "@nestjs/common";
 import { z } from "zod";
+import { Shared } from "../auth/auth.decorators.js";
 import { zodBody } from "../validation/zod.pipe.js";
 import { EventsService } from "./events.service.js";
 
@@ -14,6 +15,7 @@ const EventSchema = z.object({
 export class EventsController {
   constructor(@Inject(EventsService) private readonly events: EventsService) {}
 
+  @Shared() // worker (M2M) e dashboard (sessão)
   @Post()
   async ingest(@Body(zodBody(EventSchema)) body: z.infer<typeof EventSchema>) {
     return this.events.process(body);

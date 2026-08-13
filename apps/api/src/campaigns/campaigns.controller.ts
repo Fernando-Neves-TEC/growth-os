@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpStatus, Inject, Param, ParseUUIDPipe, Post } from "@nestjs/common";
 import { z } from "zod";
+import { Human } from "../auth/auth.decorators.js";
 import { zodBody } from "../validation/zod.pipe.js";
 import { CampaignsService, type CreateCampaignInput, type PlanDayInput, type SimulateTurnInput, type StartCampaignInput } from "./campaigns.service.js";
 
@@ -43,31 +44,37 @@ const SimulateTurnSchema = z.object({
 export class CampaignsController {
   constructor(@Inject(CampaignsService) private readonly campaigns: CampaignsService) {}
 
+  @Human()
   @Get()
   list() {
     return this.campaigns.list();
   }
 
+  @Human()
   @Get(":id")
   get(@Param("id", uuidParam) id: string) {
     return this.campaigns.get(id);
   }
 
+  @Human()
   @Post()
   create(@Body(zodBody(CreateCampaignSchema)) input: CreateCampaignInput) {
     return this.campaigns.create(input);
   }
 
+  @Human()
   @Post(":id/plan-day")
   planDay(@Param("id", uuidParam) id: string, @Body(zodBody(PlanDaySchema)) input: PlanDayInput) {
     return this.campaigns.planDay(id, input);
   }
 
+  @Human()
   @Post(":id/simulate-turn")
   simulateTurn(@Param("id", uuidParam) id: string, @Body(zodBody(SimulateTurnSchema)) input: SimulateTurnInput) {
     return this.campaigns.simulateTurn(id, input);
   }
 
+  @Human()
   @Post(":id/start")
   start(@Param("id", uuidParam) id: string, @Body(zodBody(StartCampaignSchema)) input: StartCampaignInput) {
     return this.campaigns.start(id, input);

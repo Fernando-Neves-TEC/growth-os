@@ -1,9 +1,17 @@
-/** Activities que consultam a API Growth OS (fonte única de verdade) e envios mock. */
+/** Activities que consultam a API Growth OS (fonte única de verdade) e envios mock.
+ *  S2: M2M — quando GROWTHOS_API_KEY estiver configurada, envia X-Api-Key (integração máquina-a-máquina). */
 
 const API = process.env.GROWTHOS_API_URL ?? "http://localhost:3000";
+const API_KEY = process.env.GROWTHOS_API_KEY?.trim() ?? "";
+
+function m2mHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  if (API_KEY) headers["X-Api-Key"] = API_KEY;
+  return headers;
+}
 
 async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API}${path}`);
+  const res = await fetch(`${API}${path}`, { headers: m2mHeaders() });
   if (!res.ok) throw new Error(`GET ${path} -> ${res.status}`);
   return (await res.json()) as T;
 }
@@ -11,7 +19,7 @@ async function apiGet<T>(path: string): Promise<T> {
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: m2mHeaders({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`POST ${path} -> ${res.status}`);
