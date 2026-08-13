@@ -2,7 +2,7 @@
  * A API depende das interfaces; produção usa impls Postgres; testes usam memória.
  */
 import { Injectable } from "@nestjs/common";
-import type { FunnelCounters, Workflow } from "@growthos/core";
+import { assertFunnelInvariant, FunnelInvariantError, type FunnelCounters, type FunnelStage, type Workflow } from "@growthos/core";
 
 // ---------- Kill-switch ----------
 export interface KillSwitchState {
@@ -125,8 +125,11 @@ export class MemoryCounterStore implements CounterStore {
   }
 }
 
-// ---------- Eventos (ingestão idempotente) ----------
+// ---------- Eventos (ingestão ATÔMICA idempotente) ----------
 export type EventType = CounterEventType | "optout";
+
+/** Efeito derivado aplicado atomicamente junto com o registro do evento. */
+export type EventEffect = "counter" | "optout";
 
 export interface FunnelEvent {
   eventId: string;
@@ -136,8 +139,10 @@ export interface FunnelEvent {
 }
 
 export interface EventStore {
-  /** Registra o evento de forma idempotente (eventId único). Retorna duplicate=true se já processado. */
-  apply(event: FunnelEvent): Promise<{ duplicate: boolean }>;
+  /** Registra o evento e aplica o efeito derivado de forma ATÔMICA (transação no pg).
+   *  - duplicate=true se eventId já processado (nenhum efeito aplicado).
+   *  - Eventos fora de ordem (invariante do funil) lançam FunnelInvariantError — nunca mascarados. */
+  apply(event: FunnelEvent, effect: EventEffect): Promise<{ duplicate: boolean }>;
 }
 
 export const EVENT_STORE = Symbol("EVENT_STORE");
@@ -145,9 +150,29 @@ export const EVENT_STORE = Symbol("EVENT_STORE");
 @Injectable()
 export class MemoryEventStore implements EventStore {
   private readonly seen = new Set<string>();
-  async apply(event: FunnelEvent): Promise<{ duplicate: boolean }> {
+
+  /** Em memória o sink precisa alcançar os mesmos stores que Metrics/Suppression leem (consistência nos testes). */
+  constructor(private readonly deps?: { counters?: CounterStore; suppression?: SuppressionStore }) {}
+
+  async apply(event: FunnelEvent, effect: EventEffect): Promise<{ duplicate: boolean }> {
     if (this.seen.has(event.eventId)) return { duplicate: true };
     this.seen.add(event.eventId);
+    try {
+      if (effect === "counter") {
+        const state = await this.deps?.counters?.get();
+        if (state) {
+          const inv = assertFunnelInvariant(state.counters, event.type as FunnelStage);
+          if (!inv.ok) throw new FunnelInvariantError(inv.reason);
+          await this.deps!.counters!.increment(event.type as CounterEventType);
+        }
+      } else if (effect === "optout") {
+        await this.deps?.suppression?.add(event.cnpj ?? "", "opt_out_event");
+      }
+    } catch (err) {
+      // evento não consumido: retry corrigido deve poder reaplicar (consistente com ROLLBACK no pg)
+      this.seen.delete(event.eventId);
+      throw err;
+    }
     return { duplicate: false };
   }
 }

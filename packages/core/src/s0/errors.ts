@@ -30,3 +30,9 @@ export class AgentBlockedError extends GrowthError {
     super(message, "AGENT_BLOCKED");
   }
 }
+
+export class FunnelInvariantError extends GrowthError {
+  constructor(message: string) {
+    super(message, "FUNNEL_INVARIANT");
+  }
+}

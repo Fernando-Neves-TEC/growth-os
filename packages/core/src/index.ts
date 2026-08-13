@@ -8,6 +8,7 @@ export * from "./pilar2/state-machine.js";
 export * from "./pilar2/anti-ban.js";
 export * from "./pilar2/sequencer.js";
 export * from "./pilar2/handoff.js";
+export * from "./pilar2/campaign-run.js";
 export * from "./pilar4/metrics.js";
 export * from "./pilar4/health.js";
 export * from "./pilar4/alerts.js";

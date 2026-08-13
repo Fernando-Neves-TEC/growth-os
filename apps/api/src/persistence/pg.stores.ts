@@ -1,6 +1,11 @@
 /** Implementações PostgreSQL (pg) dos stores de persistência (Fase 3). */
 import { Inject, Injectable } from "@nestjs/common";
-import type { FunnelCounters } from "@growthos/core";
+import {
+  assertFunnelInvariant,
+  FunnelInvariantError,
+  type FunnelCounters,
+  type FunnelStage,
+} from "@growthos/core";
 import { PG_POOL } from "../db/db.module.js";
 import type {
   CampaignRecord,
@@ -8,6 +13,7 @@ import type {
   CounterEventType,
   CounterState,
   CounterStore,
+  EventEffect,
   EventStore,
   FunnelEvent,
   HealthSample,
@@ -160,16 +166,66 @@ export class PgCounterStore implements CounterStore {
   }
 }
 
+/** Coluna de contador por tipo de evento do funil (tabela funnel_counters). */
+export const COUNTER_COLUMNS: Record<CounterEventType, string> = {
+  sent: "sent",
+  delivered: "delivered",
+  read: "read",
+  replied: "replied",
+  qualified: "qualified",
+  scheduled: "scheduled",
+  closed: "closed",
+};
+
 @Injectable()
 export class PgEventStore implements EventStore {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
-  async apply(event: FunnelEvent): Promise<{ duplicate: boolean }> {
-    const { rowCount } = await this.pool.query(
-      "INSERT INTO events (event_id, type, cnpj, channel) VALUES ($1, $2, $3, $4) ON CONFLICT (event_id) DO NOTHING",
-      [event.eventId, event.type, event.cnpj ?? null, event.channel ?? null],
-    );
-    return { duplicate: (rowCount ?? 0) === 0 };
+  /** Atômico (H1): evento + efeito derivado (contador/optout) na MESMA transação.
+   *  Invariante do funil validado com a linha de contadores travada (FOR UPDATE) —
+   *  nunca há estado "evento persistido + contador ausente" e retry não duplica efeito. */
+  async apply(event: FunnelEvent, effect: EventEffect): Promise<{ duplicate: boolean }> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rowCount } = await client.query(
+        "INSERT INTO events (event_id, type, cnpj, channel) VALUES ($1, $2, $3, $4) ON CONFLICT (event_id) DO NOTHING",
+        [event.eventId, event.type, event.cnpj ?? null, event.channel ?? null],
+      );
+      const inserted = (rowCount ?? 0) > 0;
+      if (inserted) {
+        if (effect === "counter") {
+          const { rows } = await client.query<{
+            sent: number; delivered: number; read: number; replied: number;
+            qualified: number; scheduled: number; closed: number; rejected: number;
+          }>(
+            "SELECT sent, delivered, read, replied, qualified, scheduled, closed, rejected FROM funnel_counters WHERE id = 1 FOR UPDATE",
+          );
+          const counters = rows[0] ?? {
+            sent: 0, delivered: 0, read: 0, replied: 0, qualified: 0, scheduled: 0, closed: 0, rejected: 0,
+          };
+          const inv = assertFunnelInvariant(counters, event.type as FunnelStage);
+          if (!inv.ok) {
+            await client.query("ROLLBACK");
+            throw new FunnelInvariantError(inv.reason);
+          }
+          const col = COUNTER_COLUMNS[event.type as CounterEventType];
+          await client.query(`UPDATE funnel_counters SET ${col} = ${col} + 1, updated_at = now() WHERE id = 1`);
+        } else if (effect === "optout") {
+          await client.query(
+            "INSERT INTO suppression (cnpj, reason) VALUES ($1, 'opt_out_event') ON CONFLICT (cnpj) DO NOTHING",
+            [event.cnpj ?? null],
+          );
+        }
+      }
+      await client.query("COMMIT");
+      return { duplicate: !inserted };
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 }
 

@@ -1,6 +1,39 @@
 /** Métricas do funil e ARR projetado (Pilar 4). */
 import type { Channel } from "../pilar2/types.js";
 
+export type FunnelStage = "sent" | "delivered" | "read" | "replied" | "qualified" | "scheduled" | "closed";
+
+/** Predecessor obrigatório de cada estágio do funil. `sent` não tem predecessor. */
+export const FUNNEL_PRECEDENCE: Record<FunnelStage, FunnelStage | null> = {
+  sent: null,
+  delivered: "sent",
+  read: "delivered",
+  replied: "read",
+  qualified: "replied",
+  scheduled: "qualified",
+  closed: "scheduled",
+};
+
+export type InvariantResult = { ok: true } | { ok: false; reason: string };
+
+/** Valida se o estágio pode ser incrementado sobre os contadores atuais (contrato compartilhado).
+ *  Regras: cada estágio exige predecessor > 0 e child <= parent (nunca exceder o pai).
+ *  Eventos fora de ordem são REJEITADOS na ingestão — nunca mascarados no cálculo.
+ */
+export function assertFunnelInvariant(counters: FunnelCounters, stage: FunnelStage): InvariantResult {
+  const parent = FUNNEL_PRECEDENCE[stage];
+  if (!parent) return { ok: true }; // sent não tem predecessor
+  const parentCount = counters[parent];
+  const current = counters[stage];
+  if (parentCount <= 0) {
+    return { ok: false, reason: `${stage} requer ${parent} antes (${parent}=0)` };
+  }
+  if (current >= parentCount) {
+    return { ok: false, reason: `${stage} (${current}) não pode exceder ${parent} (${parentCount})` };
+  }
+  return { ok: true };
+}
+
 export interface FunnelCounters {
   sent: number;
   delivered: number;

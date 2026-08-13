@@ -40,18 +40,21 @@ describe("Growth OS API (e2e)", () => {
   let app: INestApplication;
 
   beforeAll(async () => {
-    // e2e hermético: substitui as stores Postgres por implementações em memória.
+    // e2e hermético: substitui as stores Postgres por implementações em memória COMPARTILHADAS
+    // (o sink atômico de eventos precisa alcançar os mesmos counters/suppression que Metrics/Status leem).
+    const counterStore = new MemoryCounterStore();
+    const suppressionStore = new MemorySuppressionStore();
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(KILL_SWITCH_STORE)
       .useValue(new MemoryKillSwitchStore())
       .overrideProvider(SUPPRESSION_STORE)
-      .useValue(new MemorySuppressionStore())
+      .useValue(suppressionStore)
       .overrideProvider(CAMPAIGN_STORE)
       .useValue(new MemoryCampaignStore())
       .overrideProvider(COUNTER_STORE)
-      .useValue(new MemoryCounterStore())
+      .useValue(counterStore)
       .overrideProvider(EVENT_STORE)
-      .useValue(new MemoryEventStore())
+      .useValue(new MemoryEventStore({ counters: counterStore, suppression: suppressionStore }))
       .overrideProvider(LEAD_STORE)
       .useValue(new MemoryLeadStore())
       .compile();
@@ -153,31 +156,53 @@ describe("Growth OS API (e2e)", () => {
     expect(res.body.arr_params.ticketMonthly).toBe(1500);
   });
 
-  it("POST /events é idempotente (eventId único)", async () => {
-    const body = { eventId: "evt-idem-1", type: "qualified" };
+  it("POST /events é idempotente (eventId único, efeito único)", async () => {
+    const before = (await request(app.getHttpServer()).get("/metrics/funnel").expect(200)).body.counters.sent;
+    const body = { eventId: "evt-idem-1", type: "sent" };
     const r1 = await request(app.getHttpServer()).post("/events").send(body).expect(201);
     expect(r1.body.duplicate).toBe(false);
     const r2 = await request(app.getHttpServer()).post("/events").send(body).expect(201);
     expect(r2.body.duplicate).toBe(true);
     const m = await request(app.getHttpServer()).get("/metrics/funnel").expect(200);
-    expect(m.body.counters.qualified).toBe(1); // incrementado uma única vez
+    expect(m.body.counters.sent).toBe(before + 1); // incrementado uma única vez (delta)
+  });
+
+  it("POST /events rejeita evento fora de ordem com 422 (invariante do funil)", async () => {
+    await request(app.getHttpServer()).post("/events").send({ eventId: "inv-sent", type: "sent" }).expect(201);
+    const res = await request(app.getHttpServer())
+      .post("/events")
+      .send({ eventId: "inv-read", type: "read" })
+      .expect(422);
+    expect(res.body.code).toBe("FUNNEL_INVARIANT");
+    // nada foi incrementado (evento não persistido)
+    const m = await request(app.getHttpServer()).get("/metrics/funnel").expect(200);
+    expect(m.body.counters.read).toBe(0);
   });
 
   it("POST /events tipo optout adiciona à suppression", async () => {
     await request(app.getHttpServer())
       .post("/events")
-      .send({ eventId: "evt-opt-1", type: "optout", cnpj: "55555555000188" })
+      .send({ eventId: "evt-opt-1", type: "optout", cnpj: "11222333000181" })
       .expect(201);
     const res = await request(app.getHttpServer()).get("/suppression").expect(200);
-    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "55555555000188")).toBe(true);
+    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "11222333000181")).toBe(true);
   });
 
   it("POST/GET /suppression registra e lista opt-out", async () => {
     await request(app.getHttpServer())
       .post("/suppression")
-      .send({ cnpj: "12.345.678/0001-90", reason: "auditoria" })
+      .send({ cnpj: "12.345.678/0001-95", reason: "auditoria" })
       .expect(201);
     const res = await request(app.getHttpServer()).get("/suppression").expect(200);
-    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "12345678000190")).toBe(true);
+    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "12345678000195")).toBe(true);
+  });
+
+  it("POST /suppression rejeita CNPJ inválido (400)", async () => {
+    await request(app.getHttpServer())
+      .post("/suppression")
+      .send({ cnpj: "12.345.678/0001-90" })
+      .expect(400);
+    const res = await request(app.getHttpServer()).get("/suppression").expect(200);
+    expect(res.body.some((s: { cnpj: string }) => s.cnpj === "12345678000190")).toBe(false);
   });
 });

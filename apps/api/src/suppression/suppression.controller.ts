@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import { isValidCnpj } from "@growthos/core";
 import { SUPPRESSION_STORE, type SuppressionStore } from "../persistence/stores.js";
 
 @Controller("suppression")
@@ -20,8 +21,8 @@ export class SuppressionController {
   @Post()
   async add(@Body() body: { cnpj: string; reason?: string }) {
     const cnpj = (body.cnpj ?? "").replace(/\D/g, "");
-    if (!cnpj) {
-      return { error: "cnpj inválido" };
+    if (!isValidCnpj(cnpj)) {
+      throw new BadRequestException("cnpj inválido");
     }
     await this.suppression.add(cnpj, body.reason);
     return { cnpj, suppressed: true };

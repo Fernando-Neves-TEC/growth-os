@@ -1,5 +1,23 @@
 /** Gates de conformidade (S9) — LGPD, anti-spam e lista de supressão (fail-closed). */
 
+/** Valida CNPJ (14 dígitos, dígitos verificadores módulo 11). Aceita somente dígitos. */
+export function isValidCnpj(value: string): boolean {
+  const c = value.replace(/\D/g, "");
+  if (c.length !== 14) return false;
+  if (/^(\d)\1{13}$/.test(c)) return false; // todos iguais
+  const calc = (len: number): number => {
+    let sum = 0;
+    let pos = len - 7;
+    for (let i = 0; i < len; i++) {
+      sum += Number(c[i]) * pos--;
+      if (pos < 2) pos = 9;
+    }
+    const r = sum % 11;
+    return r < 2 ? 0 : 11 - r;
+  };
+  return calc(12) === Number(c[12]) && calc(13) === Number(c[13]);
+}
+
 export interface ComplianceContext {
   cnpj: string;
   sentToday: number;
