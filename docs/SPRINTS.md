@@ -68,6 +68,28 @@ Legenda: ✅ implementado · 🟡 parcial · ⬜ pendente
 - **Persistência comprovada:** kill-switch/suppression/campanhas/contadores/eventos/leads/runs duráveis em Postgres; restart real validado (Bloco 1).
 - **ITENS BLOCKED_EXTERNAL:** provedores reais (WhatsApp Business, e-mail, Cal.com, Maps, CNPJ) exigem credenciais reais e `GROWTHOS_MODE=approved` — **sem envios/coleta reais até autorização**; pipeline simulado + mocks entregues e testados.
 
+## Checkpoint GAUNTLET LOOP V2 (2026-08-13) — hardening executado ✅ (CANDIDATE_DONE)
+Backlog obrigatório da auditoria independente — cada item com reprodução, correção mínima, teste focal e evidência:
+
+### Críticos
+- **C1 — API→Temporal conectado ✅:** `POST /campaigns/:id/start` persiste status `active` e inicia o workflow via launcher (`TemporalWorkflowLauncher`, `@temporalio/client`). Executor puro `executeCampaignRun` no core (compartilhado entre Temporal e E2E determinístico). **Evidência real:** campanha `49b0f2d8` — l0 (supprimido) gerou 0 eventos; l1 `sent+delivered`; l2 `sent+delivered+read`; contadores/métricas refletem. **Fix de bug descoberto:** `PgCampaignStore` fazia double-parse de JSONB (`[object Object]`).
+- **C2 — autenticação fail-open proibida ✅:** contrato de modos (`assertSafeBoot`): `approved` **sem** `GROWTHOS_API_KEY` → a API NÃO inicia (prova real: exit 1 com erro explícito). Guard exige a chave em `approved` em todas as rotas (401 sem/errada, 200 correta).
+
+### Altos
+- **H1 — evento+contador atômicos ✅:** `PgEventStore.apply` roda INSERT evento + efeito (contador/optout) em **transação** com `FOR UPDATE` no `funnel_counters`; teste `events.atomic.integration.test.ts` (normal, duplicado, falha→ROLLBACK sem evento órfão, concorrência→1 efeito).
+- **H2 — taxas >100% ✅:** causa raiz — invariantes do funil (`assertFunnelInvariant`, core) rejeitam eventos fora de ordem com **422** (`FUNNEL_INVARIANT`); mock de envio corrigido (replied implica read). Clamp mantido só como defesa.
+- **H3 — 404 ✅:** `ParseUUIDPipe(errorHttpStatusCode=404)` + `NotFoundException` (teste: UUID inválido/inexistente → 404, não 500).
+- **H4 — validação estruturada ✅:** `ZodValidationPipe` aplicado em campaigns/events/suppression/health/leads (400 com `errors`); eliminados guards manuais dispersos.
+- **H5 — kill-switch durante execução ✅:** executor verifica kill-switch **antes de cada lead** (ponto seguro de interrupção). **Prova real:** campanha 300 leads, pausa após 2s → `dispatched:2, paused:true`, resto NÃO enviado; kill-switch persiste; **resume manual** + re-run → `dispatched:300` idempotente (kb0 não duplicado).
+- **H6 — rate limiting + payload + CORS ✅:** `@nestjs/throttler` (env `GROWTHOS_RATE_LIMIT_*`; 429 testado), payload limit (`GROWTHOS_BODY_LIMIT`; 413 testado), CORS por ambiente (`GROWTHOS_CORS_ORIGINS`; approved sem allowlist bloqueia).
+- **H7 — dashboard com API key ✅:** cliente web envia `X-Api-Key` (`VITE_API_KEY`/`setApiKey`); teste `apps/web/src/api.test.ts`.
+
+### Médios
+- CNPJ validado (checksum) em suppression e optout ✅ · FK `leads_enriched→pipeline_runs` (migration `009_fks.sql`, sem órfãos) + CHECK não-negativo nos contadores ✅ · lifecycle: create→`draft`, start→`active` ✅ · `leads_raw` documentado como **PLANEJADO** (staging crua; pipeline atual grava direto em `leads_enriched`) · idempotência de envio: eventos idempotentes por `eventId`; adaptador real deve ser idempotente (documentado) · runner de migrations com **advisory lock + transação por arquivo** ✅ · CORS testado ✅ · CI com **Postgres services** e `GROWTHOS_DB_TEST_REQUIRED=1` (integração nunca pula silenciosamente) ✅ · conformidade TS/Python **cruzada real** via `scripts/health-reference.mjs` (referência do core) ✅.
+
+### Regressão final
+Build monorepo OK · **core 59/59 · API 62/62 · web 3/3 · Python 51/51** (com banco + referência TS) · migrations 001–009 idempotentes · Git limpo.
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.

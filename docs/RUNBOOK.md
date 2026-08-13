@@ -9,8 +9,8 @@ docker compose up -d          # postgres+pgvector (5433), redis (6379), temporal
 cp .env.example .env          # ajuste conforme necessário
 npm install
 npm run build                 # compila core + api + worker + web
-npm run migrate --workspace=@growthos/api   # aplica migrations 001–008 (idempotentes)
-npm test                      # testes TS (core 44 + api 24)
+npm run migrate --workspace=@growthos/api   # aplica migrations 001–009 (idempotentes, com lock)
+npm test                      # testes TS (core 59 + api 62 + web 3)
 
 # API + dashboard
 npm run dev --workspace=@growthos/api       # http://localhost:3000 (modo simulation)
@@ -39,9 +39,11 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
 # Teste de carga (sequenciador + kill-switch)
 node scripts/load-test.mjs
 
-# Workflow Temporal (worker + disparo real de campanha)
+# Workflow Temporal (worker + disparo de campanha PELO PRODUTO)
 npm run dev --workspace=@growthos/temporal-worker   # registra activities + workflow
-node apps/temporal-worker/dist/start.js             # dispara workflow (7 disparos; lead-0 suppressido)
+# Criar e iniciar via API (não via start.js):
+#   POST /campaigns  {name, workflow}
+#   POST /campaigns/:id/start  {plans:[{leadId,cnpj?,channel,body}]} → inicia o workflow
 ```
 
 ## 3. Fluxo de operação
@@ -64,19 +66,27 @@ node apps/temporal-worker/dist/start.js             # dispara workflow (7 dispar
 | GET/POST | `/suppression` · `/suppression/:cnpj` | Lista/consulta/adiciona opt-out (CNPJ, contains) |
 | GET/POST | `/campaigns` · `/campaigns/:id` | Lista/cria/consulta campanhas |
 | POST | `/campaigns/:id/plan-day` · `/simulate-turn` | Planeja envios (sem mutar contadores) / simula turno (state machine) |
+| POST | `/campaigns/:id/start` | **Ativa a campanha** (status `active`) e inicia o workflow no Temporal |
 | GET | `/channels/health` · `/channels/kill-switch` | Saúde do canal (no_data/healthy/warning/critical, score≤100) / estado do kill-switch |
 | POST | `/channels/pause` · `/resume` | Pausa (fail-closed) / retoma manualmente |
 | GET | `/metrics/funnel` | Contadores + taxas + ARR projetado (parâmetros via config) |
 | POST | `/events` | Ingestão idempotente (chave `eventId`; `optout` → suppression) |
 | GET | `/leads` · `/leads/runs` | Leads persistidos + runs do pipeline |
 
-Autenticação: se `GROWTHOS_API_KEY` estiver configurada, enviar header `X-Api-Key` (401 sem/errado).
+Autenticação: `GROWTHOS_API_KEY` (header `X-Api-Key`). Em `GROWTHOS_MODE=approved` a chave é **obrigatória** (a API não inicia sem ela) e exigida em todas as rotas.
 
-## 4.1 Kill-switch (emergência)
+## 4.0 Limites e CORS
+
+- Payload: `GROWTHOS_BODY_LIMIT` (padrão `100kb`; excedido → 413).
+- Rate limit por IP: `GROWTHOS_RATE_LIMIT_TTL_MS`/`GROWTHOS_RATE_LIMIT_MAX` (padrão `60000`/`1000`; excedido → 429).
+- CORS: `GROWTHOS_CORS_ORIGINS` (allowlist). Em `approved` sem allowlist, origens externas são **bloqueadas** (fail-closed).
+
+## 4.1 Kill-switch (emergência, inclusive durante execução)
 
 - **Automático:** rejeição > 5% ou score < 60 → campanha **pausa sozinha** (fail-closed). Canal sem dados (`no_data`) **nunca** autopausa.
 - **Manual:** `POST /channels/pause` com motivo; verificar `GET /channels/kill-switch`.
-- **Retomada:** sempre manual e deliberada (`POST /channels/resume`), nunca automática.
+- **Durante a execução:** o workflow consulta o kill-switch **antes de cada lead** (ponto seguro de interrupção) — ao pausar, os próximos leads NÃO são enviados; o workflow termina com `paused: true` e os resultados parciais.
+- **Contrato de retomada (resume):** sempre manual e deliberada (`POST /channels/resume`), nunca automática. Após resume, **re-disparar a campanha** (`POST /campaigns/:id/start` com o plano restante) — os eventos já registrados são **idempotentes** (mesmo `eventId`), então não há re-envio. Prova real: 2/300 enviados com pause; após resume + re-run, `dispatched: 300` sem duplicar kb0/kb1.
 
 ## 4.2 Temporal — operação
 

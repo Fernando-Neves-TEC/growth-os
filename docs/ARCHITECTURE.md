@@ -50,38 +50,44 @@ flowchart TB
 
 ## Repositório
 ```
-packages/core/          domínio TS (config, pilar2, pilar4, s9, erros, logger) — CommonJS
+packages/core/          domínio TS (config, pilar2 [incl. campaign-run], pilar4 [incl. invariantes], s9 [incl. CNPJ], erros, logger) — CommonJS
 workers/python/         workers: pilar1, pilar3, pilar4, simulation, pipeline/repo (psycopg)
-apps/api/               API NestJS (campaigns, health, metrics, suppression, events, leads, status) + persistência PostgreSQL (pg)
-apps/temporal-worker/   worker Temporal + workflow campaignRun (activities: api + send mock)
-apps/web/               dashboard React/Vite (Dashboard, Builder, Leads & Suppression)
-migrations/             SQL 001–008 (pgvector) — runner: npm run migrate --workspace=@growthos/api
-scripts/load-test.mjs   teste de carga simulado
-.github/workflows/ci.yml  CI: ts-core · ts-apps · web · python-workers
+apps/api/               API NestJS (campaigns [launcher Temporal], health, metrics, suppression, events, leads, status) + persistência PostgreSQL (pg) + ZodValidationPipe
+apps/temporal-worker/   worker Temporal + workflow campaignRun (delega ao executor puro do core)
+apps/web/               dashboard React/Vite (Dashboard, Builder, Leads & Suppression) + cliente com X-Api-Key
+migrations/             SQL 001–009 (pgvector) — runner com lock/transação: npm run migrate --workspace=@growthos/api
+scripts/load-test.mjs   teste de carga simulado · scripts/health-reference.mjs  referência TS p/ conformidade cruzada
+.github/workflows/ci.yml  CI: ts-core · ts-apps (postgres) · web · python-workers (postgres + referência TS)
 ```
 
 ## Persistência (Fase 3 — completa)
 - Postgres do Docker publicado em **`localhost:5433`** (evita conflito com Postgres local do Windows na 5432).
 - `DbModule` (pool `pg`) + `PersistenceModule` (global) com stores: **KillSwitchStore, SuppressionStore, CampaignStore, CounterStore, EventStore, LeadStore** (impls `pg` + em memória para testes).
-- **Migrations 001–008:** leads_raw, leads_enriched, kill_switch_state, suppression, campaigns, funnel_counters, events, pipeline_runs.
-- **Eventos idempotentes** (`POST /events`, chave `eventId` com `ON CONFLICT DO NOTHING`); opt-out (`optout`) alimenta suppression automaticamente.
-- **Pipeline persistente Python** (`LeadRepository` psycopg): `save_run` + `upsert_leads` (ON CONFLICT atualiza `pipeline_run_id`/`processed_at`) → rastreabilidade por run.
-- Testes e2e herméticos (stores em memória via override); integração real cobre persistência/restart (prova de restart real).
+- **Migrations 001–009:** leads_raw (PLANEJADO — staging crua; pipeline atual grava em leads_enriched), leads_enriched, kill_switch_state, suppression, campaigns, funnel_counters, events, pipeline_runs, FKs (leads_enriched→pipeline_runs + CHECK não-negativo dos contadores).
+- **Eventos ATÔMICOS e idempotentes** (`POST /events`, chave `eventId`): `PgEventStore` grava evento + efeito (contador/optout) na **mesma transação** (H1) — nunca existe “evento persistido + contador ausente”.
+- **Invariantes do funil (H2):** `assertFunnelInvariant` (core) rejeita eventos fora de ordem (`delivered≤sent`, `read≤delivered`, `replied≤read`, …) com **422** — taxas nunca >100% por construção.
+- **Pipeline persistente Python** (`LeadRepository` psycopg): `save_run` (primeiro) + `upsert_leads` (ON CONFLICT atualiza `pipeline_run_id`/`processed_at`) → rastreabilidade por run com FK.
+- Testes e2e herméticos (stores em memória via override); integração real cobre persistência/restart + atomicidade/concorrência de eventos (prova real).
 - Sem provedores externos reais: permanece **modo design/simulação** (`GROWTHOS_MODE=simulation`); provedores reais exigem `GROWTHOS_MODE=approved` + credenciais.
 
-## Execução Temporal (Fase 3, Bloco C)
-- Workflow `campaignRun` (queue `growthos-campaign`): `validateWorkflow` (erros estruturados) → `getKillSwitch` (paused → return) → por lead: `isSuppressed` (skip) → `sendMessage` → `recordEvent` (sent/delivered/read/replied).
-- Activities via HTTP à API (kill-switch/suppression/eventos) + send mock (reply implica read).
-- Retries: `initialInterval 1s · backoff 2 · maxAttempts 5`; idempotência por `eventId wf-{campaignId}-{leadId}-{type}`.
-- Prova real: 7 dispatched (lead-0 suppressido pulado), métricas 7/7/4/1, replyRate 25%, health 70.5.
+## Execução Temporal + API→Temporal (C1)
+- **Launcher:** `POST /campaigns/:id/start` (status `active`) → `WorkflowLauncher` (produção: `TemporalWorkflowLauncher` com `@temporalio/client`; testes: fake determinístico). workflowId estável por campanha (`growthos-{id}`) — início duplicado → 409.
+- **Workflow `campaignRun`** (queue `growthos-campaign`) delega ao **executor puro** `executeCampaignRun` (core): valida workflow → kill-switch no início E **entre cada lead** (H5 — interrompe novos envios; ponto seguro) → suppression por lead → send mock → eventos em ordem canônica (idempotentes por `eventId wf-{id}-{lead}-{type}`).
+- Activities via HTTP à API; retries `1s · ×2 · 5`; send mock: replied implica read.
+- **Prova real (C1):** campanha `49b0f2d8` via produto — l0 (supprimido) 0 eventos, l1 `sent+delivered`, l2 `sent+delivered+read`.
+- **Prova real (H5):** 300 leads, pause após 2s → `dispatched:2, paused:true`; resume manual + re-run → `dispatched:300` idempotente.
 
-## Segurança (Fase 3, Bloco E)
-- `ApiKeyGuard` config-driven via `GROWTHOS_API_KEY` (header `X-Api-Key`; 401 sem/errado, 200 com a chave) + `AllExceptionsFilter` (erros estruturados) + validação de entrada (zod no core + DTOs).
+## Segurança (GAUNTLET V2)
+- **Contrato de modos (C2):** `approved` exige `GROWTHOS_API_KEY` no boot (`assertSafeBoot`) e no guard em todas as rotas — fail-closed. `simulation`/`design` permitem dev local sem chave.
+- `ApiKeyGuard` + `ThrottlerGuard` (rate limit env `GROWTHOS_RATE_LIMIT_*`, 429) + `AllExceptionsFilter` (erros estruturados; mapeia `FUNNEL_INVARIANT`→422 e payload→413) + `ZodValidationPipe` (validação estruturada H4) + `ParseUUIDPipe` (404 H3).
+- CORS por ambiente (`GROWTHOS_CORS_ORIGINS`; approved sem allowlist bloqueia) · payload limit (`GROWTHOS_BODY_LIMIT`).
+- Dashboard envia `X-Api-Key` (`VITE_API_KEY`/`setApiKey`) — funcional com auth ativa (H7).
 - Sanitização de texto via `s9/security` no core; sem credenciais reais no repositório (apenas `.env.example`).
 
 ## Roadmap de evolução
 1. **Fase 1 (S0–S9):** domínio TS + workers Python + infra (GATE aprovado). ✅
 2. **Fase 2:** API NestJS + worker Temporal (workflow real) + dashboard React. ✅
-3. **Fase 3 (Blocos 1 + A–F):** persistência durável, eventos idempotentes, pipeline persistente, execução Temporal com suppression/kill-switch/retries, dashboard ampliado, API key/erros estruturados, conformidade TS/Python + CI. ✅
-4. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com, Maps/CNPJ reais) — **somente** com `GROWTHOS_MODE=approved` e credenciais reais (atualmente **BLOCKED_EXTERNAL**).
-5. **Fase 4:** builder drag-and-drop completo + multi-tenant.
+3. **Fase 3 (Blocos 1 + A–F):** persistência durável, eventos idempotentes, pipeline persistente, execução Temporal, dashboard, segurança, conformidade + CI. ✅
+4. **GAUNTLET V2 (hardening):** C1 (API→Temporal), C2 (modos fail-closed), H1 (eventos atômicos), H2 (invariantes), H3 (404), H4 (validação), H5 (kill-switch em execução + resume), H6 (rate/payload/CORS), H7 (dashboard com key), médios (FK, migrations lock, conformidade cruzada, CI com Postgres). ✅
+5. **Provedores reais** (WhatsApp Business, e-mail verificado, Cal.com, Maps/CNPJ reais) — **somente** com `GROWTHOS_MODE=approved` e credenciais reais (atualmente **BLOCKED_EXTERNAL**).
+6. **Fase 4:** builder drag-and-drop completo + multi-tenant.
