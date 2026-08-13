@@ -39,6 +39,8 @@ async function run(): Promise<void> {
     workflow: process.env.WORKFLOW_INVALID === "1" ? invalidWorkflow : validWorkflow,
     plans: Array.from({ length: 8 }, (_, i) => ({
       leadId: `lead-${i}`,
+      // lead-0 usa um CNPJ supostamente em suppression (para provar o filtro no workflow)
+      cnpj: i === 0 ? "11122233000111" : `111222330001${String(i).padStart(2, "0")}`,
       channel: "whatsapp" as const,
       body: `Abordagem demo ${i}`,
     })),

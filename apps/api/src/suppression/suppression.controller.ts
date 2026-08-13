@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import { SUPPRESSION_STORE, type SuppressionStore } from "../persistence/stores.js";
 
 @Controller("suppression")
@@ -8,6 +8,13 @@ export class SuppressionController {
   @Get()
   async list() {
     return this.suppression.list();
+  }
+
+  @Get(":cnpj")
+  async contains(@Param("cnpj") cnpj: string) {
+    const normalized = cnpj.replace(/\D/g, "");
+    const suppressed = await this.suppression.contains(normalized);
+    return { cnpj: normalized, suppressed };
   }
 
   @Post()

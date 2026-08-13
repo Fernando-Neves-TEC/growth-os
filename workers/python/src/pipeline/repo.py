@@ -59,6 +59,7 @@ class LeadRepository:
                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ON CONFLICT (cnpj) DO UPDATE SET
                          icp_fit_score = EXCLUDED.icp_fit_score,
+                         pipeline_run_id = EXCLUDED.pipeline_run_id,
                          processed_at = now()""",
                     (
                         lead.cnpj,

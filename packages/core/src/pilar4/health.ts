@@ -39,6 +39,7 @@ export function channelHealth(input: ChannelHealthInput): ChannelHealth {
   score += (input.replyRate / 100) * 25;
   // rejeição zero → 20 pts; 100% → 0 pts
   score += Math.max(0, 1 - rejection / 100) * 20;
+  score = Math.min(100, score); // clamp defensivo (taxas anômalas nunca passam de 100)
 
   let status: ChannelStatus = "healthy";
   if (rejection > input.rejectionRateMax) {

@@ -7,10 +7,11 @@ export interface SendResult {
 }
 
 export async function sendMessage(plan: { leadId: string; channel: string; body: string }): Promise<SendResult> {
-  // Simulação com as probabilidades do funil âncora.
+  // Simulação realista: replied implica read (replyRate <= readRate).
+  const read = Math.random() < 0.53;
   return {
     delivered: true,
-    read: Math.random() < 0.53,
-    replied: Math.random() < 0.375,
+    read,
+    replied: read && Math.random() < 0.375,
   };
 }

@@ -45,6 +45,11 @@ describe("channelHealth + KillSwitch (S7)", () => {
     expect(h.killSwitch).toBe(false);
   });
 
+  it("score nunca ultrapassa 100 (clamp defensivo)", () => {
+    const h = channelHealth({ ...healthy, delivered: 100, sent: 100, readRate: 100, replyRate: 500 });
+    expect(h.score).toBeLessThanOrEqual(100);
+  });
+
   it("kill-switch pausa e requer retomada explícita", () => {
     const ks = new KillSwitch();
     expect(ks.isPaused).toBe(false);

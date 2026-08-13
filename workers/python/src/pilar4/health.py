@@ -18,6 +18,7 @@ def channel_health(
     delivery = _pct(delivered, sent)
     rejection = _pct(rejected, sent)
     score = (delivery / 100) * 30 + (read_rate / 100) * 25 + (reply_rate / 100) * 25 + max(0.0, 1 - rejection / 100) * 20
+    score = min(100.0, score)  # clamp defensivo
     score = round(score, 1)
 
     reasons: list[str] = []

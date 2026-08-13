@@ -1,7 +1,10 @@
 /** Bootstrap do worker Temporal. Conecta ao servidor local (docker compose) e
 registra o task queue `growthos-campaign`. */
 import { NativeConnection, Worker } from "@temporalio/worker";
-import * as activities from "./activities/send.js";
+import * as apiActivities from "./activities/api.js";
+import * as sendActivities from "./activities/send.js";
+
+const activities = { ...apiActivities, ...sendActivities };
 
 async function run(): Promise<void> {
   const address = process.env.TEMPORAL_ADDRESS ?? "localhost:7233";
