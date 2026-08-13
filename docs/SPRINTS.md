@@ -23,6 +23,20 @@ Legenda: ✅ implementado · 🟡 parcial · ⬜ pendente
 - **Sprint S0:** aprovada em **modo design/simulação** — nenhum disparo real até testes unitários/integração em sandbox.
 - **Regra de parada:** nenhuma integração externa real sem autorização explícita (`GROWTHOS_MODE=approved`).
 
+## Checkpoint do GATE INFRA S0–S9 (2026-08-13) — APROVADO ✅
+- **S0–S9 formalmente encerrados** sobre o commit de código `6d7549c`.
+- **Fix de infra (causas comprovadas) isolado no commit dedicado `662e013`** — apenas `docker-compose.yml`:
+  - `temporalio/ui:2.24` → `2.53.2` e `temporalio/auto-setup:1.24` → `1.29.7` (tags válidas no Docker Hub).
+  - `DB=postgresql` → `DB=postgres12_pgx` (driver válido na imagem 1.29.7).
+  - Removida `DYNAMIC_CONFIG_FILE_PATH` apontando para arquivo inexistente na imagem.
+- **Infra validada (subida real):**
+  - PostgreSQL 16.14 (healthy) + **pgvector 0.8.6**; migrations `leads_raw`/`leads_enriched` criadas no initdb.
+  - Redis (healthy) — `PING`/`PONG` + read/write `SET/GET`.
+  - Temporal — porta gRPC 7233 aceitando conexão; namespace `default` criado; worker/serviços iniciados; UI em 8080 (HTTP 200).
+- **Regressão final verde:** build TypeScript OK · **41/41 testes TS** · **48/48 testes Python** (via Docker).
+- **Git pós-gate:** árvore limpa; diff e index vazios.
+- **Próxima ação:** **Fase 2 — API NestJS + worker Temporal + dashboard React** integrados sobre esta base validada.
+
 ## Convenções
 - Todo artefato segue o contrato de saída dos documentos de estudo.
 - Fail-closed: qualquer violação de conformidade interrompe o pipeline.
