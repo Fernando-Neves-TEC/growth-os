@@ -34,12 +34,6 @@ export interface EventPayload {
   channel?: string;
 }
 
-export interface SendResult {
-  delivered: boolean;
-  read: boolean;
-  replied: boolean;
-}
-
 export async function getKillSwitch(): Promise<KillSwitchState> {
   return apiGet<KillSwitchState>("/channels/kill-switch");
 }
@@ -50,13 +44,4 @@ export async function isSuppressed(cnpj: string): Promise<SuppressionCheck> {
 
 export async function recordEvent(event: EventPayload): Promise<{ duplicate: boolean }> {
   return apiPost<{ duplicate: boolean }>("/events", event);
-}
-
-/** Envio simulado (nunca real em simulation). */
-export async function sendMessage(plan: { leadId: string; channel: string; body: string }): Promise<SendResult> {
-  return {
-    delivered: true,
-    read: Math.random() < 0.53,
-    replied: Math.random() < 0.375,
-  };
 }

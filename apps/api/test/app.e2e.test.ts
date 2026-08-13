@@ -1,8 +1,11 @@
 import { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
+import { executeCampaignRun, type CampaignRunInput } from "@growthos/core";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../src/app.module.js";
+import { WORKFLOW_LAUNCHER } from "../src/campaigns/workflow-launcher.js";
+import { EventsService } from "../src/events/events.service.js";
 import {
   CAMPAIGN_STORE,
   COUNTER_STORE,
@@ -16,6 +19,8 @@ import {
   MemoryLeadStore,
   MemorySuppressionStore,
   SUPPRESSION_STORE,
+  type KillSwitchStore,
+  type SuppressionStore,
 } from "../src/persistence/stores.js";
 
 const validWorkflow = {
@@ -38,28 +43,48 @@ const validWorkflow = {
 
 describe("Growth OS API (e2e)", () => {
   let app: INestApplication;
+  let eventsService: EventsService;
 
   beforeAll(async () => {
     // e2e hermético: substitui as stores Postgres por implementações em memória COMPARTILHADAS
     // (o sink atômico de eventos precisa alcançar os mesmos counters/suppression que Metrics/Status leem).
     const counterStore = new MemoryCounterStore();
     const suppressionStore = new MemorySuppressionStore();
+    const killSwitchStore = new MemoryKillSwitchStore();
+    const campaignStore = new MemoryCampaignStore();
+    const leadStore = new MemoryLeadStore();
+    // Fake launcher determinístico (C1): executa o MESMO executor puro do core usado pelo
+    // workflow Temporal, com activities ligadas às stores reais e ao EventsService real.
+    const fakeLauncher = {
+      launch: async (input: CampaignRunInput) => {
+        const outcome = await executeCampaignRun(input, {
+          getKillSwitch: () => killSwitchStore.get(),
+          isSuppressed: async (cnpj) => ({ suppressed: await suppressionStore.contains(cnpj) }),
+          sendMessage: async () => ({ delivered: true, read: true, replied: true }),
+          recordEvent: (e) => eventsService.process(e),
+        });
+        return { workflowId: `fake-${input.campaignId}` };
+      },
+    };
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(KILL_SWITCH_STORE)
-      .useValue(new MemoryKillSwitchStore())
+      .useValue(killSwitchStore)
       .overrideProvider(SUPPRESSION_STORE)
       .useValue(suppressionStore)
       .overrideProvider(CAMPAIGN_STORE)
-      .useValue(new MemoryCampaignStore())
+      .useValue(campaignStore)
       .overrideProvider(COUNTER_STORE)
       .useValue(counterStore)
       .overrideProvider(EVENT_STORE)
       .useValue(new MemoryEventStore({ counters: counterStore, suppression: suppressionStore }))
       .overrideProvider(LEAD_STORE)
-      .useValue(new MemoryLeadStore())
+      .useValue(leadStore)
+      .overrideProvider(WORKFLOW_LAUNCHER)
+      .useValue(fakeLauncher)
       .compile();
     app = moduleRef.createNestApplication();
     await app.init();
+    eventsService = moduleRef.get(EventsService);
   });
 
   afterAll(async () => {
@@ -204,5 +229,61 @@ describe("Growth OS API (e2e)", () => {
       .expect(400);
     const res = await request(app.getHttpServer()).get("/suppression").expect(200);
     expect(res.body.some((s: { cnpj: string }) => s.cnpj === "12345678000190")).toBe(false);
+  });
+
+  it("CAMINHO PRINCIPAL: criar → iniciar via API → workflow → suppression → eventos → contadores → métricas (C1)", async () => {
+    // seed: lead-0 será suprimido (CNPJ válido e não usado por outros leads)
+    await request(app.getHttpServer()).post("/suppression").send({ cnpj: "00000000000191" }).expect(201);
+    const created = await request(app.getHttpServer()).post("/campaigns").send({ name: "main", workflow: validWorkflow }).expect(201);
+    const before = (await request(app.getHttpServer()).get("/metrics/funnel").expect(200)).body.counters;
+    const plans = [
+      { leadId: "main-lead-0", cnpj: "00000000000191", channel: "whatsapp", body: "abordagem 0" },
+      { leadId: "main-lead-1", cnpj: "00000000000272", channel: "whatsapp", body: "abordagem 1" },
+      { leadId: "main-lead-2", cnpj: "00000000000353", channel: "whatsapp", body: "abordagem 2" },
+    ];
+    const start = await request(app.getHttpServer())
+      .post(`/campaigns/${created.body.id}/start`)
+      .send({ plans })
+      .expect(201);
+    expect(start.body.status).toBe("active");
+    expect(start.body.workflowId).toBe(`fake-${created.body.id}`);
+    const after = (await request(app.getHttpServer()).get("/metrics/funnel").expect(200)).body.counters;
+    // 3 plans → 2 enviados (lead-0 suppressido) × (sent+delivered+read+replied)
+    expect(after.sent).toBe(before.sent + 2);
+    expect(after.delivered).toBe(before.delivered + 2);
+    expect(after.read).toBe(before.read + 2);
+    expect(after.replied).toBe(before.replied + 2);
+    // status ativo e visível no dashboard (GET /campaigns/:id)
+    const detail = await request(app.getHttpServer()).get(`/campaigns/${created.body.id}`).expect(200);
+    expect(detail.body.status).toBe("active");
+    // dashboard consegue consultar resultado consolidado
+    const st = await request(app.getHttpServer()).get("/status").expect(200);
+    expect(st.body.leads).toBeGreaterThanOrEqual(0);
+  });
+
+  it("POST /campaigns/:id/start em campanha inexistente → 404 (H3)", async () => {
+    await request(app.getHttpServer())
+      .post("/campaigns/00000000-0000-4000-8000-000000000000/start")
+      .send({ plans: [{ leadId: "l", channel: "whatsapp", body: "oi" }] })
+      .expect(404);
+  });
+
+  it("POST /campaigns/:id/start rejeita plans inválidos (400)", async () => {
+    const created = await request(app.getHttpServer()).post("/campaigns").send({ name: "p2", workflow: validWorkflow }).expect(201);
+    await request(app.getHttpServer()).post(`/campaigns/${created.body.id}/start`).send({ plans: [] }).expect(400);
+    await request(app.getHttpServer())
+      .post(`/campaigns/${created.body.id}/start`)
+      .send({ plans: [{ leadId: "l", channel: "sms", body: "oi" }] })
+      .expect(400);
+  });
+
+  it("POST /campaigns/:id/start bloqueado pelo kill-switch → 409 (fail-closed)", async () => {
+    const created = await request(app.getHttpServer()).post("/campaigns").send({ name: "p3", workflow: validWorkflow }).expect(201);
+    await request(app.getHttpServer()).post("/channels/pause").send({ reason: "test" }).expect(201);
+    await request(app.getHttpServer())
+      .post(`/campaigns/${created.body.id}/start`)
+      .send({ plans: [{ leadId: "l", channel: "whatsapp", body: "oi" }] })
+      .expect(409);
+    await request(app.getHttpServer()).post("/channels/resume").expect(201);
   });
 });

@@ -5,6 +5,7 @@ import {
   FunnelInvariantError,
   type FunnelCounters,
   type FunnelStage,
+  type Workflow,
 } from "@growthos/core";
 import { PG_POOL } from "../db/db.module.js";
 import type {
@@ -82,20 +83,24 @@ export class PgCampaignStore implements CampaignStore {
   }
 
   async get(id: string): Promise<CampaignRecord | null> {
-    const { rows } = await this.pool.query<{ id: string; name: string; workflow: string; status: string; created_at: string }>(
+    const { rows } = await this.pool.query<{ id: string; name: string; workflow: unknown; status: string; created_at: string }>(
       "SELECT id, name, workflow, status, created_at FROM campaigns WHERE id = $1",
       [id],
     );
     const r = rows[0];
     if (!r) return null;
-    return { id: r.id, name: r.name, workflow: JSON.parse(r.workflow), status: r.status as CampaignRecord["status"], createdAt: r.created_at };
+    return { id: r.id, name: r.name, workflow: parseJsonb(r.workflow), status: r.status as CampaignRecord["status"], createdAt: r.created_at };
   }
 
   async list(): Promise<CampaignRecord[]> {
-    const { rows } = await this.pool.query<{ id: string; name: string; workflow: string; status: string; created_at: string }>(
+    const { rows } = await this.pool.query<{ id: string; name: string; workflow: unknown; status: string; created_at: string }>(
       "SELECT id, name, workflow, status, created_at FROM campaigns ORDER BY created_at",
     );
-    return rows.map((r) => ({ id: r.id, name: r.name, workflow: JSON.parse(r.workflow), status: r.status as CampaignRecord["status"], createdAt: r.created_at }));
+    return rows.map((r) => ({ id: r.id, name: r.name, workflow: parseJsonb(r.workflow), status: r.status as CampaignRecord["status"], createdAt: r.created_at }));
+  }
+
+  async setStatus(id: string, status: CampaignRecord["status"]): Promise<void> {
+    await this.pool.query("UPDATE campaigns SET status = $2 WHERE id = $1", [id, status]);
   }
 }
 
@@ -164,6 +169,11 @@ export class PgCounterStore implements CounterStore {
     const col = this.col[type];
     await this.pool.query(`UPDATE funnel_counters SET ${col} = ${col} + 1, updated_at = now() WHERE id = 1`);
   }
+}
+
+/** pg devolve colunas jsonb como objetos JS; defende também contra string (portabilidade). */
+function parseJsonb(v: unknown): Workflow {
+  return typeof v === "string" ? (JSON.parse(v) as Workflow) : (v as Workflow);
 }
 
 /** Coluna de contador por tipo de evento do funil (tabela funnel_counters). */

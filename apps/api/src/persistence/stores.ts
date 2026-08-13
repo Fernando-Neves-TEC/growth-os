@@ -64,6 +64,7 @@ export interface CampaignStore {
   create(record: CampaignRecord): Promise<void>;
   get(id: string): Promise<CampaignRecord | null>;
   list(): Promise<CampaignRecord[]>;
+  setStatus(id: string, status: CampaignRecord["status"]): Promise<void>;
 }
 
 export const CAMPAIGN_STORE = Symbol("CAMPAIGN_STORE");
@@ -79,6 +80,10 @@ export class MemoryCampaignStore implements CampaignStore {
   }
   async list(): Promise<CampaignRecord[]> {
     return [...this.map.values()];
+  }
+  async setStatus(id: string, status: CampaignRecord["status"]): Promise<void> {
+    const rec = this.map.get(id);
+    if (rec) this.map.set(id, { ...rec, status });
   }
 }
 

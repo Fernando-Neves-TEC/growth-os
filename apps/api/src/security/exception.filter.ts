@@ -2,10 +2,12 @@ import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from
 import { FunnelInvariantError } from "@growthos/core";
 import type { Request, Response } from "express";
 
-/** Erros estruturados e consistentes para a API (observabilidade). */
+/** Erros estruturados e consistentes para a API (observabilidade).
+ *  Loga o erro original no servidor (nunca expõe stack ao cliente). */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
+    console.error("[growthos-api] erro:", exception instanceof Error ? exception.stack ?? exception.message : exception);
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();

@@ -6,7 +6,7 @@ import {
   Param,
   Post,
 } from "@nestjs/common";
-import { CampaignsService, type CreateCampaignInput, type PlanDayInput, type SimulateTurnInput } from "./campaigns.service.js";
+import { CampaignsService, type CreateCampaignInput, type PlanDayInput, type SimulateTurnInput, type StartCampaignInput } from "./campaigns.service.js";
 
 @Controller("campaigns")
 export class CampaignsController {
@@ -35,5 +35,10 @@ export class CampaignsController {
   @Post(":id/simulate-turn")
   simulateTurn(@Param("id") id: string, @Body() input: SimulateTurnInput) {
     return this.campaigns.simulateTurn(id, input);
+  }
+
+  @Post(":id/start")
+  start(@Param("id") id: string, @Body() input: StartCampaignInput) {
+    return this.campaigns.start(id, input);
   }
 }

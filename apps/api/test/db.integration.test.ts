@@ -2,9 +2,10 @@
  * Prova que kill-switch e suppression sobrevivem a um "restart" (nova instância de store lendo o mesmo banco).
  * Requer Postgres de pé (docker compose) e migrations 003/004 aplicadas; pula se indisponível.
  */
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
-import { PgKillSwitchStore, PgSuppressionStore } from "../src/persistence/pg.stores.js";
+import { PgCampaignStore, PgKillSwitchStore, PgSuppressionStore } from "../src/persistence/pg.stores.js";
 
 const url = process.env.DATABASE_URL ?? "postgresql://growthos:growthos@localhost:5433/growthos";
 
@@ -45,6 +46,39 @@ describe("Persistência durável (F3, integração Postgres)", () => {
     await pool.query("DELETE FROM suppression WHERE cnpj = $1", [cnpj]);
     expect(await supB.contains(cnpj)).toBe(false);
 
+    await pool.end();
+  });
+
+  it("campanha round-trip JSONB: create → get → setStatus (regressão do double-parse)", async () => {
+    const pool = await tryPool();
+    if (!pool) {
+      console.warn("[db.integration] Postgres indisponível — teste ignorado");
+      return;
+    }
+    const store = new PgCampaignStore(pool);
+    const rec = {
+      id: randomUUID(),
+      name: "roundtrip-jsonb",
+      workflow: {
+        id: "wf-rt", version: 1, name: "n", entry: "s1",
+        nodes: [
+          { id: "s1", type: "send", config: { channel: "whatsapp", body: "oi" } },
+          { id: "e", type: "end" },
+        ],
+        edges: [{ from: "s1", to: "e" }],
+      },
+      status: "draft" as const,
+    };
+    await store.create(rec);
+    const got = await store.get(rec.id);
+    expect(got).not.toBeNull();
+    expect(got!.workflow.id).toBe("wf-rt"); // JSONB já é objeto; nunca "[object Object]"
+    expect(got!.status).toBe("draft");
+    const listed = await store.list();
+    expect(listed.some((c) => c.id === rec.id)).toBe(true);
+    await store.setStatus(rec.id, "active");
+    expect((await store.get(rec.id))!.status).toBe("active");
+    await pool.query("DELETE FROM campaigns WHERE id = $1", [rec.id]);
     await pool.end();
   });
 });
